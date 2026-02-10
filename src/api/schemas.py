@@ -2,7 +2,7 @@
 Schematy Pydantic dla API.
 
 Definiuje modele danych dla requestów i responsów API
-systemu XAI do predykcji śmiertelności.
+systemu XAI do wyjaśniania decyzji zewnętrznego AI.
 """
 
 from pydantic import BaseModel, Field, validator
@@ -37,70 +37,89 @@ class XAIMethod(str, Enum):
 # ============================================================================
 
 class PatientInput(BaseModel):
-    """Dane wejściowe pacjenta."""
+    """
+    Dane wejściowe pacjenta - 20 cech dopasowanych do modelu.
 
-    # Dane demograficzne
-    wiek: float = Field(..., ge=0, le=120, description="Wiek pacjenta")
-    plec: int = Field(..., ge=0, le=1, description="Płeć (0=K, 1=M)")
-    wiek_rozpoznania: Optional[float] = Field(None, ge=0, le=120, description="Wiek w momencie rozpoznania")
+    Pola odpowiadają 1:1 cechom z feature_names.json.
+    """
 
-    # Opóźnienie diagnostyczne
-    opoznienie_rozpoznia: Optional[float] = Field(None, ge=0, description="Opóźnienie rozpoznania (miesiące)")
+    # Dane demograficzne / diagnostyczne
+    wiek_rozpoznania: float = Field(50.0, ge=0, le=120, description="Wiek w momencie rozpoznania")
+    opoznienie_rozpoznia: float = Field(0.0, ge=0, description="Opóźnienie rozpoznania (miesiące)")
 
     # Manifestacje narządowe
-    liczba_zajetych_narzadow: int = Field(0, ge=0, le=20, description="Liczba zajętych narządów")
-    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=1)
-    manifestacja_nerki: int = Field(0, ge=0, le=1)
-    manifestacja_pokarmowy: int = Field(0, ge=0, le=1)
-    manifestacja_zajecie_csn: int = Field(0, ge=0, le=1)
-    manifestacja_neurologiczny: int = Field(0, ge=0, le=1)
+    manifestacja_miesno_szkiel: int = Field(0, ge=0, le=1, description="Manifestacja mięśniowo-szkieletowa")
+    manifestacja_skora: int = Field(0, ge=0, le=1, description="Manifestacja skórna")
+    manifestacja_wzrok: int = Field(0, ge=0, le=1, description="Manifestacja oczna")
+    manifestacja_nos_ucho_gardlo: int = Field(0, ge=0, le=1, description="Manifestacja nos/ucho/gardło")
+    manifestacja_oddechowy: int = Field(0, ge=0, le=1, description="Manifestacja układu oddechowego")
+    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=1, description="Manifestacja sercowo-naczyniowa")
+    manifestacja_pokarmowy: int = Field(0, ge=0, le=1, description="Manifestacja pokarmowa")
+    manifestacja_moczowo_plciowy: int = Field(0, ge=0, le=1, description="Manifestacja moczowo-płciowa")
+    manifestacja_zajecie_csn: int = Field(0, ge=0, le=1, description="Zajęcie ośrodkowego układu nerwowego")
+    manifestacja_neurologiczny: int = Field(0, ge=0, le=1, description="Manifestacja neurologiczna obwodowa")
 
     # Przebieg choroby
+    liczba_zajetych_narzadow: int = Field(0, ge=0, le=20, description="Liczba zajętych narządów")
+    zaostrz_wymagajace_hospital: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające hospitalizacji")
     zaostrz_wymagajace_oit: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające OIT")
 
     # Parametry laboratoryjne
-    kreatynina: Optional[float] = Field(None, ge=0, description="Kreatynina (μmol/L)")
-    max_crp: Optional[float] = Field(None, ge=0, description="Maksymalne CRP (mg/L)")
+    kreatynina: float = Field(100.0, ge=0, description="Kreatynina (μmol/L)")
 
     # Leczenie
-    plazmaferezy: int = Field(0, ge=0, le=1)
-    dializa: int = Field(0, ge=0, le=1)
-    sterydy_dawka_g: Optional[float] = Field(None, ge=0, description="Dawka sterydów (g)")
-    czas_sterydow: Optional[float] = Field(None, ge=0, description="Czas sterydów (miesiące)")
+    czas_sterydow: float = Field(0.0, ge=0, description="Czas sterydów (miesiące)")
+    plazmaferezy: int = Field(0, ge=0, le=1, description="Plazmaferezy")
+
+    # Eozynofilia
+    eozynofilia_krwi_obwodowej_wartosc: float = Field(0.0, ge=0, description="Eozynofilia krwi obwodowej (%)")
 
     # Powikłania
-    powiklania_serce_pluca: int = Field(0, ge=0, le=1)
-    powiklania_infekcja: int = Field(0, ge=0, le=1)
+    powiklania_neurologiczne: int = Field(0, ge=0, le=1, description="Powikłania neurologiczne")
 
     class Config:
         schema_extra = {
             "example": {
-                "wiek": 55,
-                "plec": 1,
                 "wiek_rozpoznania": 50,
                 "opoznienie_rozpoznia": 6,
-                "liczba_zajetych_narzadow": 3,
+                "manifestacja_miesno_szkiel": 0,
+                "manifestacja_skora": 1,
+                "manifestacja_wzrok": 0,
+                "manifestacja_nos_ucho_gardlo": 0,
+                "manifestacja_oddechowy": 1,
                 "manifestacja_sercowo_naczyniowy": 0,
-                "manifestacja_nerki": 1,
                 "manifestacja_pokarmowy": 0,
+                "manifestacja_moczowo_plciowy": 0,
                 "manifestacja_zajecie_csn": 0,
                 "manifestacja_neurologiczny": 1,
+                "liczba_zajetych_narzadow": 3,
+                "zaostrz_wymagajace_hospital": 1,
                 "zaostrz_wymagajace_oit": 0,
                 "kreatynina": 120,
-                "max_crp": 45,
-                "plazmaferezy": 0,
-                "dializa": 0,
-                "sterydy_dawka_g": 0.5,
                 "czas_sterydow": 12,
-                "powiklania_serce_pluca": 0,
-                "powiklania_infekcja": 0
+                "plazmaferezy": 0,
+                "eozynofilia_krwi_obwodowej_wartosc": 8.5,
+                "powiklania_neurologiczne": 0
             }
         }
+
+
+class AnalysisRequest(BaseModel):
+    """Request do analizy: dane pacjenta + wynik z zewnętrznego AI."""
+    patient: PatientInput
+    external_probability: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Prawdopodobieństwo zgonu z zewnętrznego systemu AI (0.0-1.0)"
+    )
 
 
 class ExplanationRequest(BaseModel):
     """Request dla wyjaśnienia."""
     patient: PatientInput
+    external_probability: float = Field(
+        0.5, ge=0.0, le=1.0,
+        description="Prawdopodobieństwo z zewnętrznego AI"
+    )
     method: XAIMethod = Field(XAIMethod.SHAP, description="Metoda XAI")
     num_features: int = Field(10, ge=1, le=50, description="Liczba cech do wyświetlenia")
 
@@ -108,6 +127,10 @@ class ExplanationRequest(BaseModel):
 class PatientExplanationRequest(BaseModel):
     """Request dla wyjaśnienia dla pacjenta."""
     patient: PatientInput
+    external_probability: float = Field(
+        0.5, ge=0.0, le=1.0,
+        description="Prawdopodobieństwo z zewnętrznego AI"
+    )
     health_literacy: HealthLiteracyLevel = Field(
         HealthLiteracyLevel.BASIC,
         description="Poziom health literacy"
@@ -119,6 +142,10 @@ class ChatRequest(BaseModel):
     """Request dla chatu."""
     message: str = Field(..., min_length=1, max_length=2000)
     patient: PatientInput
+    external_probability: float = Field(
+        0.5, ge=0.0, le=1.0,
+        description="Prawdopodobieństwo z zewnętrznego AI"
+    )
     health_literacy: HealthLiteracyLevel = Field(HealthLiteracyLevel.BASIC)
     conversation_history: List[Dict[str, str]] = Field(default_factory=list)
 
@@ -136,7 +163,7 @@ class FeatureContribution(BaseModel):
 
 
 class PredictionOutput(BaseModel):
-    """Wynik predykcji."""
+    """Wynik predykcji (wewnętrzny model, używany w wyjaśnieniach)."""
     probability: float = Field(..., ge=0, le=1, description="Prawdopodobieństwo zgonu")
     risk_level: RiskLevel
     prediction: int = Field(..., ge=0, le=1)
@@ -175,6 +202,15 @@ class LIMEExplanation(BaseModel):
     prediction: PredictionOutput
 
 
+class AnalysisOutput(BaseModel):
+    """Wynik analizy: external_probability + wyjaśnienia XAI."""
+    external_probability: float = Field(..., ge=0, le=1)
+    risk_level: RiskLevel
+    shap_explanation: Optional[SHAPExplanation] = None
+    lime_explanation: Optional[LIMEExplanation] = None
+    disclaimer: str = "Wyjaśnienia XAI mają charakter informacyjny. Nie zastępują oceny klinicznej."
+
+
 class PatientExplanation(BaseModel):
     """Wyjaśnienie dla pacjenta."""
     risk_level: str
@@ -208,6 +244,7 @@ class HealthCheckResponse(BaseModel):
     """Odpowiedź health check."""
     status: str
     model_loaded: bool
+    explainers_ready: bool = False
     api_version: str
     timestamp: str
 
@@ -239,23 +276,32 @@ class ErrorResponse(BaseModel):
 # BATCH PROCESSING SCHEMAS
 # ============================================================================
 
-class BatchPatientInput(BaseModel):
-    """Dane wejściowe dla batch prediction."""
+class BatchAnalysisInput(BaseModel):
+    """Dane wejściowe dla batch analysis."""
     patients: List[PatientInput] = Field(..., min_items=1, max_items=10000)
+    external_probabilities: List[float] = Field(
+        ..., min_items=1,
+        description="Prawdopodobieństwa z zewnętrznego AI, jedno na pacjenta"
+    )
+    include_explanations: bool = Field(False, description="Dołącz wyjaśnienia XAI (wolniejsze)")
     include_risk_factors: bool = Field(True, description="Dołącz top czynniki ryzyka")
     top_n_factors: int = Field(3, ge=1, le=10, description="Liczba top czynników ryzyka")
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "patients": [
-                    {"wiek": 55, "plec": 1, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
-                    {"wiek": 45, "plec": 0, "liczba_zajetych_narzadow": 2, "manifestacja_nerki": 0}
-                ],
-                "include_risk_factors": True,
-                "top_n_factors": 3
-            }
-        }
+    @validator('external_probabilities')
+    def validate_probabilities(cls, v):
+        for p in v:
+            if not 0.0 <= p <= 1.0:
+                raise ValueError(f"Prawdopodobieństwo musi być w zakresie [0, 1], otrzymano {p}")
+        return v
+
+    @validator('external_probabilities')
+    def validate_length_match(cls, v, values):
+        if 'patients' in values and len(v) != len(values['patients']):
+            raise ValueError(
+                f"Liczba external_probabilities ({len(v)}) musi odpowiadać "
+                f"liczbie pacjentów ({len(values['patients'])})"
+            )
+        return v
 
 
 class RiskFactorItem(BaseModel):
@@ -270,9 +316,10 @@ class BatchPatientResult(BaseModel):
     """Wynik dla pojedynczego pacjenta w batch."""
     patient_id: Optional[str] = None
     index: int
-    prediction: PredictionOutput
+    external_probability: float
+    risk_level: RiskLevel
     top_risk_factors: Optional[List[RiskFactorItem]] = None
-    processing_status: str = "success"  # success | demo | error
+    processing_status: str = "success"
     error_message: Optional[str] = None
 
 
@@ -292,19 +339,18 @@ class BatchProcessingError(BaseModel):
     """Błąd przetwarzania pojedynczego pacjenta."""
     patient_index: int
     patient_id: Optional[str] = None
-    error_type: str  # validation | prediction | timeout
+    error_type: str
     error_message: str
     is_recoverable: bool = True
 
 
-class BatchPredictionOutput(BaseModel):
-    """Wynik batch prediction."""
+class BatchAnalysisOutput(BaseModel):
+    """Wynik batch analysis."""
     total_patients: int
     processed_count: int
     success_count: int
     error_count: int
     processing_time_ms: float
-    mode: str  # "api" | "demo"
     summary: BatchSummary
     results: List[BatchPatientResult]
     errors: List[BatchProcessingError] = []
@@ -317,7 +363,6 @@ class BatchPredictionOutput(BaseModel):
                 "success_count": 100,
                 "error_count": 0,
                 "processing_time_ms": 150.5,
-                "mode": "api",
                 "summary": {
                     "total_count": 100,
                     "low_risk_count": 45,
@@ -338,7 +383,8 @@ class DemoModeStatus(BaseModel):
     """Status trybu demo."""
     demo_allowed: bool
     model_loaded: bool
-    current_mode: str  # "api" | "demo" | "unavailable"
+    explainers_ready: bool
+    current_mode: str
     force_api_mode: bool
 
 
@@ -362,27 +408,28 @@ def patient_to_array(patient: PatientInput, feature_order: List[str]) -> List[fl
     Returns:
         Lista wartości cech
     """
-    # Mapowanie nazw z Pydantic na nazwy w modelu
+    # Mapowanie 1:1 nazw Pydantic → nazw modelu (20 cech)
     field_mapping = {
-        'wiek': 'Wiek',
-        'plec': 'Plec',
         'wiek_rozpoznania': 'Wiek_rozpoznania',
         'opoznienie_rozpoznia': 'Opoznienie_Rozpoznia',
-        'liczba_zajetych_narzadow': 'Liczba_Zajetych_Narzadow',
+        'manifestacja_miesno_szkiel': 'Manifestacja_Miesno-Szkiel',
+        'manifestacja_skora': 'Manifestacja_Skora',
+        'manifestacja_wzrok': 'Manifestacja_Wzrok',
+        'manifestacja_nos_ucho_gardlo': 'Manifestacja_Nos/Ucho/Gardlo',
+        'manifestacja_oddechowy': 'Manifestacja_Oddechowy',
         'manifestacja_sercowo_naczyniowy': 'Manifestacja_Sercowo-Naczyniowy',
-        'manifestacja_nerki': 'Manifestacja_Nerki',
         'manifestacja_pokarmowy': 'Manifestacja_Pokarmowy',
+        'manifestacja_moczowo_plciowy': 'Manifestacja_Moczowo-Plciowy',
         'manifestacja_zajecie_csn': 'Manifestacja_Zajecie_CSN',
         'manifestacja_neurologiczny': 'Manifestacja_Neurologiczny',
+        'liczba_zajetych_narzadow': 'Liczba_Zajetych_Narzadow',
+        'zaostrz_wymagajace_hospital': 'Zaostrz_Wymagajace_Hospital',
         'zaostrz_wymagajace_oit': 'Zaostrz_Wymagajace_OIT',
         'kreatynina': 'Kreatynina',
-        'max_crp': 'Max_CRP',
-        'plazmaferezy': 'Plazmaferezy',
-        'dializa': 'Dializa',
-        'sterydy_dawka_g': 'Sterydy_Dawka_g',
         'czas_sterydow': 'Czas_Sterydow',
-        'powiklania_serce_pluca': 'Powiklania_Serce/pluca',
-        'powiklania_infekcja': 'Powiklania_Infekcja'
+        'plazmaferezy': 'Plazmaferezy',
+        'eozynofilia_krwi_obwodowej_wartosc': 'Eozynofilia_Krwi_Obwodowej_Wartosc',
+        'powiklania_neurologiczne': 'Powiklania_Neurologiczne',
     }
 
     # Odwróć mapowanie
@@ -414,7 +461,7 @@ def get_risk_level_from_probability(probability: float) -> RiskLevel:
 
 def patients_to_matrix(patients: List[PatientInput], feature_order: List[str]) -> 'np.ndarray':
     """
-    Konwertuj listę PatientInput do macierzy numpy dla vectorized prediction.
+    Konwertuj listę PatientInput do macierzy numpy.
 
     Args:
         patients: Lista danych pacjentów

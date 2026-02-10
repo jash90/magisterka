@@ -10,13 +10,14 @@ poziomów health literacy (pacjenci, klinicyści).
 # ============================================================================
 
 SYSTEM_PROMPT_CLINICIAN = """
-Jesteś asystentem medycznym wspierającym lekarzy w interpretacji wyników
-analizy ryzyka śmiertelności u pacjentów z zapaleniem naczyń.
+Jesteś asystentem medycznym wspierającym lekarzy w interpretacji wyjaśnień
+decyzji zewnętrznego systemu AI dotyczących ryzyka śmiertelności
+u pacjentów z zapaleniem naczyń.
 
 TWOJE KOMPETENCJE:
-- Wyjaśnianie wyników modeli predykcyjnych ML
+- Wyjaśnianie decyzji zewnętrznego systemu AI
 - Interpretacja wartości SHAP i LIME
-- Omówienie czynników ryzyka i ochronnych
+- Omówienie czynników ryzyka i ochronnych zidentyfikowanych przez XAI
 - Kontekstualizacja wyników w świetle wiedzy medycznej
 
 ZASADY KOMUNIKACJI:
@@ -26,20 +27,21 @@ ZASADY KOMUNIKACJI:
 4. Zachowaj obiektywizm - przedstaw zarówno ograniczenia jak i mocne strony analizy
 
 STRUKTURA ODPOWIEDZI:
-1. Podsumowanie predykcji (ryzyko, prawdopodobieństwo)
-2. Kluczowe czynniki wpływające na wynik
+1. Podsumowanie oceny zewnętrznego AI (ryzyko, prawdopodobieństwo)
+2. Kluczowe czynniki zidentyfikowane przez XAI
 3. Kontekst kliniczny
-4. Ograniczenia analizy
+4. Ograniczenia analizy XAI
 5. Sugestie dalszego postępowania (jeśli stosowne)
 
 ZAWSZE PAMIĘTAJ:
-- Model jest narzędziem wspierającym, nie zastępuje oceny klinicznej
-- Podkreślaj niepewność predykcji
+- Wyjaśniasz decyzję innego systemu AI, nie sam predykujesz
+- XAI identyfikuje korelacje, nie koniecznie przyczyny
+- Podkreślaj niepewność wyjaśnień
 - Nie formułuj bezpośrednich zaleceń terapeutycznych
 """
 
 SYSTEM_PROMPT_PATIENT_BASIC = """
-Jesteś pomocnym asystentem wyjaśniającym wyniki analizy zdrowotnej.
+Jesteś pomocnym asystentem wyjaśniającym decyzje systemu AI dotyczące zdrowia.
 Rozmawiasz z pacjentem, który może nie mieć wykształcenia medycznego.
 
 ZASADY KOMUNIKACJI:
@@ -54,7 +56,7 @@ ZAMIEŃ TERMINOLOGIĘ:
 - "prawdopodobieństwo" → "jak bardzo prawdopodobne"
 - "czynniki ryzyka" → "rzeczy wymagające uwagi"
 - "czynniki ochronne" → "rzeczy działające na Twoją korzyść"
-- "predykcja modelu" → "wyniki analizy"
+- "wynik zewnętrznego AI" → "wyniki analizy komputerowej"
 - "wysoki wskaźnik" → "podwyższona wartość"
 
 STRUKTURA ODPOWIEDZI:
@@ -73,7 +75,7 @@ NIGDY NIE:
 """
 
 SYSTEM_PROMPT_PATIENT_ADVANCED = """
-Jesteś asystentem medycznym wyjaśniającym wyniki analizy ryzyka.
+Jesteś asystentem medycznym wyjaśniającym decyzje systemu AI dotyczące ryzyka.
 Rozmawiasz z wykształconym pacjentem, który rozumie podstawową terminologię.
 
 ZASADY KOMUNIKACJI:
@@ -94,7 +96,7 @@ UNIKAJ:
 - terminologii ML (model, trening, walidacja)
 
 ZAWSZE:
-- Podkreślaj że to narzędzie wspierające
+- Podkreślaj że wyjaśniasz decyzję innego systemu AI
 - Zachęcaj do konsultacji z lekarzem
 - Dodaj disclaimer na końcu
 """
@@ -104,7 +106,7 @@ ZAWSZE:
 # ============================================================================
 
 EXPLANATION_TEMPLATE_PATIENT = """
-Na podstawie analizy Twoich wyników zdrowotnych, przygotowaliśmy podsumowanie.
+Na podstawie analizy Twoich danych zdrowotnych przez zewnętrzny system AI, przygotowaliśmy podsumowanie.
 
 OGÓLNA OCENA:
 {overall_assessment}
@@ -122,23 +124,23 @@ ZALECENIA:
 """
 
 EXPLANATION_TEMPLATE_CLINICIAN = """
-## Analiza ryzyka śmiertelności
+## Wyjaśnienie decyzji zewnętrznego AI
 
-### Predykcja modelu
+### Ocena zewnętrznego systemu AI
 - **Prawdopodobieństwo zgonu**: {probability:.1%}
 - **Poziom ryzyka**: {risk_level}
 - **95% CI**: {confidence_interval}
 
-### Główne czynniki wpływające na predykcję
+### Główne czynniki zidentyfikowane przez XAI
 
-#### Czynniki zwiększające ryzyko:
+#### Czynniki zwiększające ryzyko wg modelu:
 {risk_factors}
 
-#### Czynniki zmniejszające ryzyko:
+#### Czynniki zmniejszające ryzyko wg modelu:
 {protective_factors}
 
-### Metodologia
-- Model: {model_type}
+### Metodologia XAI
+- Model wewnętrzny: {model_type}
 - Metoda XAI: {xai_method}
 - Bazowe ryzyko (intercept): {base_value:.3f}
 
@@ -146,7 +148,7 @@ EXPLANATION_TEMPLATE_CLINICIAN = """
 {notes}
 
 ---
-*Ten raport został wygenerowany automatycznie i służy wyłącznie jako narzędzie wspierające decyzje kliniczne.*
+*Ten raport wyjaśnia decyzję zewnętrznego systemu AI i służy wyłącznie jako narzędzie wspierające decyzje kliniczne.*
 """
 
 # ============================================================================
@@ -206,16 +208,17 @@ OBOWIĄZKOWE REAKCJE:
 
 DISCLAIMER_PATIENT = """
 ---
-**Ważne**: To narzędzie ma charakter wyłącznie informacyjny.
-Nie zastępuje profesjonalnej diagnozy medycznej ani porady lekarza.
+**Ważne**: To narzędzie wyjaśnia decyzję zewnętrznego systemu AI.
+Ma charakter wyłącznie informacyjny. Nie zastępuje profesjonalnej
+diagnozy medycznej ani porady lekarza.
 Jeśli masz pytania dotyczące swojego zdrowia, skonsultuj się
 z lekarzem prowadzącym.
 """
 
 DISCLAIMER_CLINICIAN = """
 ---
-*Uwaga: Ten system jest narzędziem wspierającym decyzje kliniczne (Clinical Decision Support).
-Wyniki predykcji opierają się na modelach statystycznych i powinny być interpretowane
+*Uwaga: Ten system wyjaśnia decyzje zewnętrznego systemu AI (Clinical Decision Support).
+Wyjaśnienia XAI opierają się na wewnętrznym modelu i powinny być interpretowane
 w kontekście pełnego obrazu klinicznego pacjenta. Wszystkie decyzje terapeutyczne
 pozostają w gestii lekarza prowadzącego.*
 """
@@ -225,39 +228,40 @@ pozostają w gestii lekarza prowadzącego.*
 # ============================================================================
 
 FEATURE_TRANSLATIONS = {
-    'Wiek': 'Twój wiek',
-    'Plec': 'Płeć',
     'Wiek_rozpoznania': 'Wiek w momencie rozpoznania choroby',
     'Opoznienie_Rozpoznia': 'Czas do postawienia diagnozy',
-    'Liczba_Zajetych_Narzadow': 'Liczba narządów objętych chorobą',
+    'Manifestacja_Miesno-Szkiel': 'Objawy mięśniowo-szkieletowe',
+    'Manifestacja_Skora': 'Zmiany skórne',
+    'Manifestacja_Wzrok': 'Objawy oczne',
+    'Manifestacja_Nos/Ucho/Gardlo': 'Objawy laryngologiczne (nos/ucho/gardło)',
+    'Manifestacja_Oddechowy': 'Objawy układu oddechowego',
     'Manifestacja_Sercowo-Naczyniowy': 'Stan układu sercowo-naczyniowego',
-    'Manifestacja_Nerki': 'Stan nerek',
     'Manifestacja_Pokarmowy': 'Stan układu pokarmowego',
+    'Manifestacja_Moczowo-Plciowy': 'Objawy układu moczowo-płciowego',
     'Manifestacja_Zajecie_CSN': 'Stan ośrodkowego układu nerwowego',
-    'Manifestacja_Neurologiczny': 'Objawy neurologiczne',
+    'Manifestacja_Neurologiczny': 'Objawy neurologiczne obwodowe',
+    'Liczba_Zajetych_Narzadow': 'Liczba narządów objętych chorobą',
+    'Zaostrz_Wymagajace_Hospital': 'Historia hospitalizacji z powodu zaostrzeń',
     'Zaostrz_Wymagajace_OIT': 'Historia pobytu na intensywnej terapii',
     'Kreatynina': 'Poziom wskaźnika czynności nerek',
-    'Max_CRP': 'Poziom stanu zapalnego w organizmie',
-    'Plazmaferezy': 'Przebyte zabiegi oczyszczania krwi',
-    'Dializa': 'Historia leczenia nerkozastępczego',
-    'Sterydy_Dawka_g': 'Dawka stosowanych sterydów',
     'Czas_Sterydow': 'Czas trwania leczenia sterydami',
-    'Powiklania_Serce/pluca': 'Powikłania sercowo-płucne',
-    'Powiklania_Infekcja': 'Przebyte infekcje jako powikłania'
+    'Plazmaferezy': 'Przebyte zabiegi oczyszczania krwi',
+    'Eozynofilia_Krwi_Obwodowej_Wartosc': 'Poziom eozynofilii we krwi',
+    'Powiklania_Neurologiczne': 'Powikłania neurologiczne'
 }
 
 RISK_LEVEL_DESCRIPTIONS = {
     'low': {
-        'patient': 'Analiza wskazuje na niskie ryzyko. To dobra wiadomość, ale ważne jest regularne monitorowanie stanu zdrowia.',
-        'clinician': 'Niskie ryzyko zgonu (prawdopodobieństwo <30%). Zalecany standardowy schemat follow-up.'
+        'patient': 'Zewnętrzny system AI wskazuje na niskie ryzyko. To dobra wiadomość, ale ważne jest regularne monitorowanie stanu zdrowia.',
+        'clinician': 'Niskie ryzyko zgonu wg zewnętrznego AI (prawdopodobieństwo <30%). Zalecany standardowy schemat follow-up.'
     },
     'moderate': {
-        'patient': 'Analiza wskazuje na umiarkowane ryzyko. Warto zwrócić uwagę na kilka czynników i regularnie konsultować się z lekarzem.',
-        'clinician': 'Umiarkowane ryzyko zgonu (prawdopodobieństwo 30-70%). Zalecana intensyfikacja monitorowania.'
+        'patient': 'Zewnętrzny system AI wskazuje na umiarkowane ryzyko. Warto zwrócić uwagę na kilka czynników i regularnie konsultować się z lekarzem.',
+        'clinician': 'Umiarkowane ryzyko zgonu wg zewnętrznego AI (prawdopodobieństwo 30-70%). Zalecana intensyfikacja monitorowania.'
     },
     'high': {
-        'patient': 'Analiza wskazuje na podwyższone ryzyko. Ważne jest, aby być pod stałą opieką specjalisty i przestrzegać zaleceń.',
-        'clinician': 'Wysokie ryzyko zgonu (prawdopodobieństwo >70%). Zalecana intensywna opieka i rozważenie eskalacji leczenia.'
+        'patient': 'Zewnętrzny system AI wskazuje na podwyższone ryzyko. Ważne jest, aby być pod stałą opieką specjalisty i przestrzegać zaleceń.',
+        'clinician': 'Wysokie ryzyko zgonu wg zewnętrznego AI (prawdopodobieństwo >70%). Zalecana intensywna opieka i rozważenie eskalacji leczenia.'
     }
 }
 
@@ -327,7 +331,7 @@ def generate_patient_explanation(
     Wygeneruj pełne wyjaśnienie dla pacjenta.
 
     Args:
-        probability: Prawdopodobieństwo zgonu
+        probability: Prawdopodobieństwo zgonu (z zewnętrznego AI)
         risk_factors: Lista czynników ryzyka
         protective_factors: Lista czynników ochronnych
         health_literacy: Poziom ('basic' lub 'advanced')
@@ -366,10 +370,10 @@ def generate_clinician_explanation(
     Wygeneruj pełne wyjaśnienie dla klinicysty.
 
     Args:
-        probability: Prawdopodobieństwo zgonu
+        probability: Prawdopodobieństwo zgonu (z zewnętrznego AI)
         risk_factors: Lista czynników ryzyka
         protective_factors: Lista czynników ochronnych
-        model_type: Typ modelu
+        model_type: Typ modelu wewnętrznego
         xai_method: Metoda XAI
         base_value: Wartość bazowa
         confidence_interval: Przedział ufności

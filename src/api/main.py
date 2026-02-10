@@ -1,8 +1,8 @@
 """
 FastAPI aplikacja dla systemu XAI.
 
-Główny plik API z endpointami dla predykcji,
-wyjaśnień XAI i agenta konwersacyjnego.
+Główny plik API z endpointami dla wyjaśniania decyzji
+zewnętrznego AI i interakcji z agentem konwersacyjnym.
 """
 
 import os
@@ -28,9 +28,10 @@ from .schemas import (
     PatientExplanation, ModelInfo, GlobalImportance, HealthCheckResponse,
     ChatRequest, ChatResponse, ExplanationRequest, PatientExplanationRequest,
     ComparisonResult, ErrorResponse, RiskLevel, XAIMethod, HealthLiteracyLevel,
+    AnalysisRequest, AnalysisOutput,
     patient_to_array, get_risk_level_from_probability, patients_to_matrix,
     # Batch schemas
-    BatchPatientInput, BatchPredictionOutput, BatchPatientResult,
+    BatchAnalysisInput, BatchAnalysisOutput, BatchPatientResult,
     BatchSummary, BatchProcessingError, RiskFactorItem,
     DemoModeStatus, DemoModeRequest
 )
@@ -45,15 +46,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Vasculitis XAI API",
     description="""
-    API do predykcji śmiertelności w zapaleniu naczyń z wyjaśnieniami XAI.
+    API do wyjaśniania decyzji zewnętrznego AI w zapaleniu naczyń.
 
-    System wykorzystuje modele ML (XGBoost, Random Forest) wraz z metodami
-    wyjaśnialnej sztucznej inteligencji (LIME, SHAP, DALEX, EBM) do:
-    - Predykcji ryzyka zgonu
-    - Generowania wyjaśnień dla klinicystów i pacjentów
-    - Interaktywnej rozmowy o wynikach
+    System przyjmuje wynik predykcji z zewnętrznego modelu AI (% przeżycia/zgonu)
+    i wyjaśnia, które cechy pacjenta były kluczowe dla tej decyzji,
+    wykorzystując metody XAI (SHAP, LIME).
     """,
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -72,15 +71,16 @@ app.add_middleware(
 # ============================================================================
 
 class AppState:
-    """Stan aplikacji z wczytanymi modelami."""
+    """Stan aplikacji z wczytanymi modelami i explainerami."""
 
     def __init__(self):
         self.model = None
         self.feature_names = None
-        self.lime_explainer = None
-        self.shap_explainer = None
+        self.shap_explainer_instance = None
+        self.lime_explainer_instance = None
         self.rag_pipeline = None
         self.is_loaded = False
+        self.explainers_ready = False
 
         # Konfiguracja trybu demo
         self.allow_demo = os.getenv("ALLOW_DEMO", "true").lower() == "true"
@@ -88,9 +88,6 @@ class AppState:
 
         if self.force_api_mode:
             self.allow_demo = False
-
-        # Global feature importance cache
-        self._global_importance_cache: Optional[Dict[str, float]] = None
 
     def set_demo_mode(self, enabled: bool):
         """Włącz/wyłącz tryb demo."""
@@ -108,32 +105,6 @@ class AppState:
         else:
             return "unavailable"
 
-    def get_global_importance(self) -> Dict[str, float]:
-        """Pobierz global feature importance (z cache)."""
-        if self._global_importance_cache is None:
-            self._global_importance_cache = {
-                "Wiek": 0.15,
-                "Manifestacja_Nerki": 0.12,
-                "Zaostrz_Wymagajace_OIT": 0.11,
-                "Liczba_Zajetych_Narzadow": 0.10,
-                "Manifestacja_Sercowo-Naczyniowy": 0.09,
-                "Kreatynina": 0.08,
-                "Max_CRP": 0.07,
-                "Dializa": 0.06,
-                "Manifestacja_Zajecie_CSN": 0.05,
-                "Plazmaferezy": 0.04,
-                "Manifestacja_Neurologiczny": 0.03,
-                "Manifestacja_Pokarmowy": 0.02,
-                "Plec": 0.02,
-                "Sterydy_Dawka_g": 0.02,
-                "Czas_Sterydow": 0.01,
-                "Powiklania_Serce/pluca": 0.02,
-                "Powiklania_Infekcja": 0.02,
-                "Wiek_rozpoznania": 0.01,
-                "Opoznienie_Rozpoznia": 0.01
-            }
-        return self._global_importance_cache
-
     def load_models(self, model_path: str, feature_names_path: str):
         """Wczytaj modele i explainer'y."""
         import joblib
@@ -149,11 +120,54 @@ class AppState:
             logger.info(f"Wczytano {len(self.feature_names)} nazw cech")
 
             self.is_loaded = True
+
+            # Inicjalizacja explainerów
+            self._init_explainers()
+
             return True
 
         except Exception as e:
             logger.error(f"Błąd wczytywania modeli: {e}")
             return False
+
+    def _init_explainers(self):
+        """Inicjalizacja prawdziwych SHAP i LIME explainerów."""
+        try:
+            # Wczytaj dane referencyjne
+            ref_path = os.getenv(
+                "REFERENCE_DATA_PATH",
+                "models/saved/X_reference.npy"
+            )
+            if not Path(ref_path).exists():
+                logger.warning(f"Brak danych referencyjnych: {ref_path}. Explainers niedostępne.")
+                return
+
+            X_reference = np.load(ref_path)
+            logger.info(f"Wczytano dane referencyjne: {X_reference.shape}")
+
+            # SHAP Explainer
+            from src.xai.shap_explainer import SHAPExplainer
+            self.shap_explainer_instance = SHAPExplainer(
+                model=self.model,
+                X_background=X_reference,
+                feature_names=self.feature_names
+            )
+            logger.info("SHAP Explainer zainicjalizowany")
+
+            # LIME Explainer
+            from src.xai.lime_explainer import LIMEExplainer
+            self.lime_explainer_instance = LIMEExplainer(
+                model=self.model,
+                X_train=X_reference,
+                feature_names=self.feature_names
+            )
+            logger.info("LIME Explainer zainicjalizowany")
+
+            self.explainers_ready = True
+
+        except Exception as e:
+            logger.error(f"Błąd inicjalizacji explainerów: {e}")
+            self.explainers_ready = False
 
 
 app_state = AppState()
@@ -188,94 +202,87 @@ async def shutdown_event():
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_demo_prediction(patient: PatientInput) -> PredictionOutput:
-    """Wygeneruj demo predykcję gdy model nie jest załadowany."""
-    # Prosta heurystyka dla demo
-    risk_score = 0.0
-
-    # Wiek
-    risk_score += max(0, (patient.wiek - 50) / 100)
-
-    # Liczba narządów
-    risk_score += patient.liczba_zajetych_narzadow * 0.1
-
-    # Krytyczne manifestacje
-    if patient.manifestacja_nerki:
-        risk_score += 0.15
-    if patient.manifestacja_sercowo_naczyniowy:
-        risk_score += 0.15
-    if patient.manifestacja_zajecie_csn:
-        risk_score += 0.2
-
-    # OIT
-    if patient.zaostrz_wymagajace_oit:
-        risk_score += 0.25
-
-    # Dializa
-    if patient.dializa:
-        risk_score += 0.2
-
-    # Ogranicz do [0, 1]
-    probability = min(max(risk_score, 0.05), 0.95)
-
+def _build_prediction_output(probability: float) -> PredictionOutput:
+    """Zbuduj PredictionOutput z prawdopodobieństwa."""
     return PredictionOutput(
-        probability=probability,
+        probability=float(probability),
         risk_level=get_risk_level_from_probability(probability),
-        prediction=1 if probability > 0.5 else 0,
-        confidence_interval={"lower": probability - 0.1, "upper": probability + 0.1}
+        prediction=1 if probability > 0.5 else 0
     )
 
 
-def get_demo_explanation(patient: PatientInput) -> dict:
-    """Wygeneruj demo wyjaśnienie."""
+def _build_shap_explanation(shap_result: dict, prediction: PredictionOutput) -> SHAPExplanation:
+    """Zbuduj SHAPExplanation z wyniku shap_explainer.explain_instance()."""
+    shap_values_dict = dict(zip(
+        shap_result['feature_names'],
+        [float(v) for v in shap_result['shap_values']]
+    ))
+
+    contributions = []
     risk_factors = []
     protective_factors = []
 
-    if patient.wiek > 60:
-        risk_factors.append({
-            "feature": "Wiek",
-            "value": patient.wiek,
-            "contribution": 0.15,
-            "direction": "zwiększa ryzyko"
-        })
+    for fi in shap_result['feature_impacts']:
+        fc = {
+            "feature": fi['feature'],
+            "value": float(fi['feature_value']),
+            "contribution": float(fi['shap_value']),
+            "direction": fi['direction']
+        }
+        contributions.append(fc)
+        if fi['shap_value'] > 0:
+            risk_factors.append(fc)
+        elif fi['shap_value'] < 0:
+            protective_factors.append(fc)
 
-    if patient.manifestacja_nerki:
-        risk_factors.append({
-            "feature": "Manifestacja_Nerki",
-            "value": 1,
-            "contribution": 0.12,
-            "direction": "zwiększa ryzyko"
-        })
+    return SHAPExplanation(
+        base_value=shap_result['base_value'],
+        shap_values=shap_values_dict,
+        feature_contributions=contributions,
+        risk_factors=risk_factors,
+        protective_factors=protective_factors,
+        prediction=prediction
+    )
 
-    if patient.zaostrz_wymagajace_oit:
-        risk_factors.append({
-            "feature": "Zaostrz_Wymagajace_OIT",
-            "value": 1,
-            "contribution": 0.2,
-            "direction": "zwiększa ryzyko"
-        })
 
-    if patient.wiek < 50:
-        protective_factors.append({
-            "feature": "Wiek",
-            "value": patient.wiek,
-            "contribution": -0.1,
-            "direction": "zmniejsza ryzyko"
-        })
+def _build_lime_explanation(lime_result: dict, prediction: PredictionOutput) -> LIMEExplanation:
+    """Zbuduj LIMEExplanation z wyniku lime_explainer.explain_instance()."""
+    feature_weights = []
+    risk_factors = []
+    protective_factors = []
 
-    if patient.liczba_zajetych_narzadow <= 2:
-        protective_factors.append({
-            "feature": "Liczba_Zajetych_Narzadow",
-            "value": patient.liczba_zajetych_narzadow,
-            "contribution": -0.08,
-            "direction": "zmniejsza ryzyko"
-        })
+    for feat_desc, weight in lime_result['feature_weights']:
+        fw = {
+            "feature": feat_desc,
+            "weight": float(weight),
+            "condition": feat_desc
+        }
+        feature_weights.append(fw)
+        if weight > 0:
+            risk_factors.append({"feature": feat_desc, "weight": float(weight)})
+        elif weight < 0:
+            protective_factors.append({"feature": feat_desc, "weight": float(weight)})
 
-    return {
-        "risk_factors": risk_factors,
-        "protective_factors": protective_factors,
-        "base_value": 0.15
-    }
+    return LIMEExplanation(
+        intercept=lime_result['intercept'],
+        feature_weights=feature_weights,
+        risk_factors=risk_factors,
+        protective_factors=protective_factors,
+        local_prediction=lime_result['local_prediction'],
+        prediction=prediction
+    )
+
+
+def _get_internal_prediction(patient: PatientInput) -> PredictionOutput:
+    """Uzyskaj predykcję z wewnętrznego modelu (do celów XAI)."""
+    if app_state.is_loaded and app_state.model is not None:
+        features = patient_to_array(patient, app_state.feature_names)
+        X = np.array(features).reshape(1, -1)
+        probability = app_state.model.predict_proba(X)[0, 1]
+        return _build_prediction_output(probability)
+    else:
+        # Fallback: bez modelu nie ma prawdziwej predykcji
+        return _build_prediction_output(0.5)
 
 
 # ============================================================================
@@ -287,8 +294,8 @@ async def root():
     """Strona główna API."""
     return {
         "name": "Vasculitis XAI API",
-        "version": "1.0.0",
-        "description": "API do predykcji śmiertelności w zapaleniu naczyń z wyjaśnieniami XAI",
+        "version": "2.0.0",
+        "description": "API do wyjaśniania decyzji zewnętrznego AI w zapaleniu naczyń",
         "docs": "/docs",
         "health": "/health"
     }
@@ -300,252 +307,214 @@ async def health_check():
     return HealthCheckResponse(
         status="healthy",
         model_loaded=app_state.is_loaded,
-        api_version="1.0.0",
+        explainers_ready=app_state.explainers_ready,
+        api_version="2.0.0",
         timestamp=datetime.now().isoformat()
     )
 
 
+# ============================================================================
+# MAIN ANALYSIS ENDPOINT
+# ============================================================================
+
+@app.post("/analyze", response_model=AnalysisOutput, tags=["Analysis"])
+async def analyze(request: AnalysisRequest):
+    """
+    Wyjaśnij decyzję zewnętrznego AI.
+
+    Przyjmuje dane pacjenta i prawdopodobieństwo z zewnętrznego modelu AI.
+    Zwraca wyjaśnienia SHAP i LIME wskazujące, które cechy pacjenta
+    mogły wpłynąć na tę ocenę.
+    """
+    try:
+        ext_prob = request.external_probability
+        risk_level = get_risk_level_from_probability(ext_prob)
+
+        shap_explanation = None
+        lime_explanation = None
+
+        if app_state.is_loaded and app_state.explainers_ready:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            X = np.array(features).reshape(1, -1)
+            internal_pred = _get_internal_prediction(request.patient)
+
+            # SHAP
+            if app_state.shap_explainer_instance:
+                shap_result = app_state.shap_explainer_instance.explain_instance(X)
+                shap_explanation = _build_shap_explanation(shap_result, internal_pred)
+
+            # LIME
+            if app_state.lime_explainer_instance:
+                lime_result = app_state.lime_explainer_instance.explain_instance(X[0])
+                lime_explanation = _build_lime_explanation(lime_result, internal_pred)
+
+        return AnalysisOutput(
+            external_probability=ext_prob,
+            risk_level=risk_level,
+            shap_explanation=shap_explanation,
+            lime_explanation=lime_explanation,
+            disclaimer=(
+                "Zewnętrzny system AI oszacował ryzyko zgonu na "
+                f"{ext_prob:.1%}. Poniżej przedstawiamy czynniki, które "
+                "mogą wpływać na tę ocenę. Wyjaśnienia mają charakter informacyjny."
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Błąd analizy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LEGACY PREDICT (kept for backward compatibility)
+# ============================================================================
+
 @app.post("/predict", response_model=PredictionOutput, tags=["Prediction"])
 async def predict(patient: PatientInput):
     """
-    Wykonaj predykcję ryzyka śmiertelności.
+    Wykonaj predykcję z wewnętrznego modelu.
 
-    Zwraca prawdopodobieństwo zgonu i poziom ryzyka dla pacjenta.
+    Zwraca prawdopodobieństwo zgonu z wewnętrznego modelu XGBoost.
+    Używane głównie wewnętrznie przez explainers.
     """
     try:
-        if app_state.is_loaded and app_state.model is not None:
-            # Użyj prawdziwego modelu
-            features = patient_to_array(patient, app_state.feature_names)
-            X = np.array(features).reshape(1, -1)
-
-            probability = app_state.model.predict_proba(X)[0, 1]
-            prediction = int(probability > 0.5)
-
-            return PredictionOutput(
-                probability=float(probability),
-                risk_level=get_risk_level_from_probability(probability),
-                prediction=prediction
-            )
-        else:
-            # Demo mode
-            return get_demo_prediction(patient)
-
+        return _get_internal_prediction(patient)
     except Exception as e:
         logger.error(f"Błąd predykcji: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
-# BATCH PREDICTION
+# BATCH ANALYSIS
 # ============================================================================
 
-def batch_predict_vectorized(X: np.ndarray, model) -> Tuple[np.ndarray, np.ndarray]:
+@app.post("/analyze/batch", response_model=BatchAnalysisOutput, tags=["Analysis"])
+async def analyze_batch(request: BatchAnalysisInput):
     """
-    Vectorized batch prediction using numpy.
+    Batch analysis dla wielu pacjentów.
 
-    Args:
-        X: Feature matrix (n_patients, n_features)
-        model: Trained model with predict_proba
-
-    Returns:
-        Tuple of (probabilities, predictions)
-    """
-    probabilities = model.predict_proba(X)[:, 1]  # Positive class
-    predictions = (probabilities > 0.5).astype(int)
-    return probabilities, predictions
-
-
-def get_batch_risk_factors(
-    X: np.ndarray,
-    feature_names: List[str],
-    top_n: int = 3
-) -> List[List[RiskFactorItem]]:
-    """
-    Extract top risk factors for each patient using global importance.
-    Fast extraction for batch processing.
-    """
-    global_importance = app_state.get_global_importance()
-    n_patients = X.shape[0]
-    results = []
-
-    # Feature name to index mapping
-    feature_idx_map = {name: i for i, name in enumerate(feature_names)}
-
-    # Thresholds for determining risk direction
-    RISK_THRESHOLDS = {
-        "Wiek": 60,
-        "Kreatynina": 150,
-        "Max_CRP": 50,
-        "Liczba_Zajetych_Narzadow": 3,
-    }
-
-    BINARY_RISK_FEATURES = {
-        "Manifestacja_Nerki", "Manifestacja_Sercowo-Naczyniowy",
-        "Manifestacja_Zajecie_CSN", "Zaostrz_Wymagajace_OIT",
-        "Dializa", "Plazmaferezy", "Manifestacja_Neurologiczny",
-        "Manifestacja_Pokarmowy", "Powiklania_Serce/pluca", "Powiklania_Infekcja"
-    }
-
-    for i in range(n_patients):
-        patient_factors = []
-
-        for feature_name, importance in global_importance.items():
-            if feature_name not in feature_idx_map:
-                continue
-
-            idx = feature_idx_map[feature_name]
-            value = float(X[i, idx])
-
-            # Determine direction based on feature type and value
-            if feature_name in BINARY_RISK_FEATURES:
-                direction = "increases_risk" if value == 1 else "decreases_risk"
-            elif feature_name in RISK_THRESHOLDS:
-                threshold = RISK_THRESHOLDS[feature_name]
-                direction = "increases_risk" if value > threshold else "decreases_risk"
-            else:
-                direction = "neutral"
-
-            patient_factors.append(RiskFactorItem(
-                feature=feature_name,
-                value=value,
-                importance=importance,
-                direction=direction
-            ))
-
-        # Sort by importance and take top N
-        patient_factors.sort(key=lambda x: x.importance, reverse=True)
-        results.append(patient_factors[:top_n])
-
-    return results
-
-
-@app.post("/predict/batch", response_model=BatchPredictionOutput, tags=["Prediction"])
-async def predict_batch(request: BatchPatientInput):
-    """
-    Batch prediction dla wielu pacjentów.
-
-    Używa vectorized numpy dla wysokiej wydajności.
-    Może przetwarzać 1000+ pacjentów w <100ms.
-
-    Returns:
-        Predykcje, poziomy ryzyka i opcjonalne czynniki ryzyka dla każdego pacjenta.
+    Wymaga external_probabilities (jedno na pacjenta).
+    Opcjonalnie generuje wyjaśnienia XAI.
     """
     start_time = time.perf_counter()
 
     results = []
     errors = []
-    mode = app_state.get_current_mode()
-
-    # Check if API mode is required but model not loaded
-    if mode == "unavailable":
-        raise HTTPException(
-            status_code=503,
-            detail="Model nie jest załadowany i tryb demo jest wyłączony. Ustaw ALLOW_DEMO=true lub załaduj model."
-        )
-
     n_patients = len(request.patients)
 
-    if app_state.is_loaded and app_state.model is not None:
-        # PRODUCTION MODE: Vectorized batch prediction
+    for i, (patient, ext_prob) in enumerate(
+        zip(request.patients, request.external_probabilities)
+    ):
         try:
-            # Convert all patients to matrix at once
-            X = patients_to_matrix(request.patients, app_state.feature_names)
+            risk_level = get_risk_level_from_probability(ext_prob)
 
-            # Single vectorized prediction call
-            probabilities, predictions = batch_predict_vectorized(X, app_state.model)
+            top_factors = None
+            if request.include_risk_factors and app_state.is_loaded:
+                features = patient_to_array(patient, app_state.feature_names)
+                X = np.array(features).reshape(1, -1)
 
-            # Extract risk factors if requested
-            if request.include_risk_factors:
-                risk_factors = get_batch_risk_factors(
-                    X, app_state.feature_names, request.top_n_factors
+                # Użyj feature_importances_ modelu
+                importances = _get_model_importances()
+                top_factors = _extract_risk_factors(
+                    X[0], app_state.feature_names, importances, request.top_n_factors
                 )
-            else:
-                risk_factors = [None] * n_patients
-
-            # Build results
-            for i in range(n_patients):
-                prob = float(probabilities[i])
-                results.append(BatchPatientResult(
-                    index=i,
-                    prediction=PredictionOutput(
-                        probability=prob,
-                        risk_level=get_risk_level_from_probability(prob),
-                        prediction=int(predictions[i])
-                    ),
-                    top_risk_factors=risk_factors[i],
-                    processing_status="success"
-                ))
-
-        except Exception as e:
-            logger.error(f"Batch prediction error: {e}")
-            # Fallback to individual processing
-            for i, patient in enumerate(request.patients):
-                try:
-                    pred = await predict(patient)
-                    results.append(BatchPatientResult(
-                        index=i,
-                        prediction=pred,
-                        processing_status="success"
-                    ))
-                except Exception as inner_e:
-                    errors.append(BatchProcessingError(
-                        patient_index=i,
-                        error_type="prediction",
-                        error_message=str(inner_e),
-                        is_recoverable=True
-                    ))
-    else:
-        # DEMO MODE: Use heuristic predictions
-        for i, patient in enumerate(request.patients):
-            demo_pred = get_demo_prediction(patient)
-            demo_factors = None
-
-            if request.include_risk_factors:
-                demo_exp = get_demo_explanation(patient)
-                demo_factors = [
-                    RiskFactorItem(
-                        feature=f["feature"],
-                        value=f["value"],
-                        importance=abs(f["contribution"]),
-                        direction="increases_risk" if f["contribution"] > 0 else "decreases_risk"
-                    )
-                    for f in (demo_exp["risk_factors"] + demo_exp["protective_factors"])[:request.top_n_factors]
-                ]
 
             results.append(BatchPatientResult(
                 index=i,
-                prediction=demo_pred,
-                top_risk_factors=demo_factors,
-                processing_status="demo"
+                external_probability=ext_prob,
+                risk_level=risk_level,
+                top_risk_factors=top_factors,
+                processing_status="success"
             ))
 
-    # Calculate summary statistics
-    probs = [r.prediction.probability for r in results if r.processing_status != "error"]
+        except Exception as e:
+            errors.append(BatchProcessingError(
+                patient_index=i,
+                error_type="processing",
+                error_message=str(e),
+                is_recoverable=True
+            ))
+
+    # Summary
+    ext_probs = [r.external_probability for r in results]
 
     summary = BatchSummary(
         total_count=n_patients,
-        low_risk_count=sum(1 for r in results if r.prediction.risk_level == RiskLevel.LOW),
-        moderate_risk_count=sum(1 for r in results if r.prediction.risk_level == RiskLevel.MODERATE),
-        high_risk_count=sum(1 for r in results if r.prediction.risk_level == RiskLevel.HIGH),
-        avg_probability=float(np.mean(probs)) if probs else 0.0,
-        median_probability=float(np.median(probs)) if probs else 0.0,
-        min_probability=float(np.min(probs)) if probs else 0.0,
-        max_probability=float(np.max(probs)) if probs else 0.0
+        low_risk_count=sum(1 for r in results if r.risk_level == RiskLevel.LOW),
+        moderate_risk_count=sum(1 for r in results if r.risk_level == RiskLevel.MODERATE),
+        high_risk_count=sum(1 for r in results if r.risk_level == RiskLevel.HIGH),
+        avg_probability=float(np.mean(ext_probs)) if ext_probs else 0.0,
+        median_probability=float(np.median(ext_probs)) if ext_probs else 0.0,
+        min_probability=float(np.min(ext_probs)) if ext_probs else 0.0,
+        max_probability=float(np.max(ext_probs)) if ext_probs else 0.0
     )
 
     processing_time = (time.perf_counter() - start_time) * 1000
 
-    return BatchPredictionOutput(
+    return BatchAnalysisOutput(
         total_patients=n_patients,
         processed_count=len(results),
-        success_count=len([r for r in results if r.processing_status in ["success", "demo"]]),
+        success_count=len([r for r in results if r.processing_status == "success"]),
         error_count=len(errors),
         processing_time_ms=processing_time,
-        mode=mode,
         summary=summary,
         results=results,
         errors=errors
     )
+
+
+def _get_model_importances() -> Dict[str, float]:
+    """Pobierz feature importances z modelu."""
+    if app_state.is_loaded and app_state.model is not None:
+        importances = app_state.model.feature_importances_
+        return dict(zip(app_state.feature_names, importances.tolist()))
+    return {}
+
+
+def _extract_risk_factors(
+    x: np.ndarray,
+    feature_names: List[str],
+    importances: Dict[str, float],
+    top_n: int = 3
+) -> List[RiskFactorItem]:
+    """Wyodrębnij top czynniki ryzyka dla pacjenta."""
+    BINARY_RISK_FEATURES = {
+        "Manifestacja_Miesno-Szkiel", "Manifestacja_Skora", "Manifestacja_Wzrok",
+        "Manifestacja_Nos/Ucho/Gardlo", "Manifestacja_Oddechowy",
+        "Manifestacja_Sercowo-Naczyniowy", "Manifestacja_Pokarmowy",
+        "Manifestacja_Moczowo-Plciowy", "Manifestacja_Zajecie_CSN",
+        "Manifestacja_Neurologiczny", "Zaostrz_Wymagajace_Hospital",
+        "Zaostrz_Wymagajace_OIT", "Plazmaferezy", "Powiklania_Neurologiczne"
+    }
+
+    RISK_THRESHOLDS = {
+        "Wiek_rozpoznania": 60,
+        "Kreatynina": 150,
+        "Liczba_Zajetych_Narzadow": 3,
+        "Eozynofilia_Krwi_Obwodowej_Wartosc": 15,
+    }
+
+    factors = []
+    for i, fname in enumerate(feature_names):
+        value = float(x[i])
+        importance = importances.get(fname, 0.0)
+
+        if fname in BINARY_RISK_FEATURES:
+            direction = "increases_risk" if value == 1 else "decreases_risk"
+        elif fname in RISK_THRESHOLDS:
+            direction = "increases_risk" if value > RISK_THRESHOLDS[fname] else "decreases_risk"
+        else:
+            direction = "neutral"
+
+        factors.append(RiskFactorItem(
+            feature=fname,
+            value=value,
+            importance=importance,
+            direction=direction
+        ))
+
+    factors.sort(key=lambda x: x.importance, reverse=True)
+    return factors[:top_n]
 
 
 # ============================================================================
@@ -554,15 +523,11 @@ async def predict_batch(request: BatchPatientInput):
 
 @app.get("/config/demo-mode", response_model=DemoModeStatus, tags=["Config"])
 async def get_demo_mode_status():
-    """
-    Pobierz status konfiguracji trybu demo.
-
-    Returns:
-        Czy tryb demo jest dozwolony, status modelu i aktualny tryb pracy.
-    """
+    """Pobierz status konfiguracji trybu demo."""
     return DemoModeStatus(
         demo_allowed=app_state.allow_demo,
         model_loaded=app_state.is_loaded,
+        explainers_ready=app_state.explainers_ready,
         current_mode=app_state.get_current_mode(),
         force_api_mode=app_state.force_api_mode
     )
@@ -570,12 +535,7 @@ async def get_demo_mode_status():
 
 @app.post("/config/demo-mode", response_model=DemoModeStatus, tags=["Config"])
 async def set_demo_mode(request: DemoModeRequest):
-    """
-    Włącz lub wyłącz tryb demo.
-
-    Gdy tryb demo jest wyłączony i model nie jest załadowany, API zwróci błędy 503.
-    Nie można włączyć trybu demo gdy zmienna FORCE_API_MODE jest ustawiona.
-    """
+    """Włącz lub wyłącz tryb demo."""
     try:
         app_state.set_demo_mode(request.enabled)
         return await get_demo_mode_status()
@@ -583,51 +543,34 @@ async def set_demo_mode(request: DemoModeRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ============================================================================
+# XAI EXPLANATION ENDPOINTS
+# ============================================================================
+
 @app.post("/explain/shap", response_model=SHAPExplanation, tags=["XAI"])
 async def explain_shap(request: ExplanationRequest):
     """
     Wygeneruj wyjaśnienie SHAP.
 
-    Zwraca wartości SHAP dla cech pacjenta.
+    Zwraca prawdziwe wartości SHAP dla cech pacjenta.
     """
     try:
-        # Najpierw predykcja
-        prediction = await predict(request.patient)
+        internal_pred = _get_internal_prediction(request.patient)
 
-        # Demo wyjaśnienie
-        demo_exp = get_demo_explanation(request.patient)
+        if app_state.is_loaded and app_state.explainers_ready and app_state.shap_explainer_instance:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            X = np.array(features).reshape(1, -1)
 
-        # Utwórz strukturę SHAP
-        shap_values = {}
-        contributions = []
+            shap_result = app_state.shap_explainer_instance.explain_instance(X)
+            return _build_shap_explanation(shap_result, internal_pred)
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="SHAP explainer niedostępny. Załaduj model i dane referencyjne."
+            )
 
-        for rf in demo_exp["risk_factors"]:
-            shap_values[rf["feature"]] = rf["contribution"]
-            contributions.append({
-                "feature": rf["feature"],
-                "value": rf["value"],
-                "contribution": rf["contribution"],
-                "direction": rf["direction"]
-            })
-
-        for pf in demo_exp["protective_factors"]:
-            shap_values[pf["feature"]] = pf["contribution"]
-            contributions.append({
-                "feature": pf["feature"],
-                "value": pf["value"],
-                "contribution": pf["contribution"],
-                "direction": pf["direction"]
-            })
-
-        return SHAPExplanation(
-            base_value=demo_exp["base_value"],
-            shap_values=shap_values,
-            feature_contributions=contributions,
-            risk_factors=demo_exp["risk_factors"],
-            protective_factors=demo_exp["protective_factors"],
-            prediction=prediction
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Błąd SHAP: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -638,38 +581,25 @@ async def explain_lime(request: ExplanationRequest):
     """
     Wygeneruj wyjaśnienie LIME.
 
-    Zwraca wagi cech z lokalnego modelu zastępczego.
+    Zwraca prawdziwe wagi cech z lokalnego modelu zastępczego.
     """
     try:
-        prediction = await predict(request.patient)
-        demo_exp = get_demo_explanation(request.patient)
+        internal_pred = _get_internal_prediction(request.patient)
 
-        feature_weights = []
-        for rf in demo_exp["risk_factors"]:
-            feature_weights.append({
-                "feature": rf["feature"],
-                "weight": rf["contribution"],
-                "condition": f"{rf['feature']} = {rf['value']}"
-            })
+        if app_state.is_loaded and app_state.explainers_ready and app_state.lime_explainer_instance:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            X = np.array(features).reshape(1, -1)
 
-        for pf in demo_exp["protective_factors"]:
-            feature_weights.append({
-                "feature": pf["feature"],
-                "weight": pf["contribution"],
-                "condition": f"{pf['feature']} = {pf['value']}"
-            })
+            lime_result = app_state.lime_explainer_instance.explain_instance(X[0])
+            return _build_lime_explanation(lime_result, internal_pred)
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="LIME explainer niedostępny. Załaduj model i dane referencyjne."
+            )
 
-        return LIMEExplanation(
-            intercept=demo_exp["base_value"],
-            feature_weights=feature_weights,
-            risk_factors=[{"feature": rf["feature"], "weight": rf["contribution"]}
-                         for rf in demo_exp["risk_factors"]],
-            protective_factors=[{"feature": pf["feature"], "weight": pf["contribution"]}
-                               for pf in demo_exp["protective_factors"]],
-            local_prediction=prediction.probability,
-            prediction=prediction
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Błąd LIME: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -681,52 +611,88 @@ async def explain_for_patient(request: PatientExplanationRequest):
     Wygeneruj wyjaśnienie zrozumiałe dla pacjenta.
 
     Dostosowuje język i poziom szczegółowości do poziomu health literacy.
+    Uwzględnia external_probability z zewnętrznego AI.
     """
     try:
-        prediction = await predict(request.patient)
-        demo_exp = get_demo_explanation(request.patient)
+        ext_prob = request.external_probability
+        risk_level = get_risk_level_from_probability(ext_prob)
 
         # Tłumaczenia cech
         translations = {
-            "Wiek": "Twój wiek",
-            "Manifestacja_Nerki": "Stan nerek",
-            "Manifestacja_Sercowo_Naczyniowy": "Stan układu krążenia",
+            "Wiek_rozpoznania": "Wiek w momencie rozpoznania",
+            "Manifestacja_Sercowo-Naczyniowy": "Stan układu krążenia",
+            "Manifestacja_Oddechowy": "Stan układu oddechowego",
+            "Manifestacja_Zajecie_CSN": "Stan ośrodkowego układu nerwowego",
+            "Manifestacja_Neurologiczny": "Objawy neurologiczne",
+            "Manifestacja_Skora": "Zmiany skórne",
+            "Manifestacja_Wzrok": "Problemy ze wzrokiem",
+            "Manifestacja_Nos_Ucho_Gardlo": "Objawy laryngologiczne",
             "Zaostrz_Wymagajace_OIT": "Przebyte poważne zaostrzenia",
+            "Zaostrz_Wymagajace_Hospital": "Hospitalizacje",
             "Liczba_Zajetych_Narzadow": "Liczba dotkniętych narządów",
             "Kreatynina": "Wskaźnik czynności nerek",
-            "Max_CRP": "Poziom stanu zapalnego"
+            "Powiklania_Neurologiczne": "Powikłania neurologiczne",
         }
 
-        # Poziom ryzyka
-        if prediction.probability < 0.3:
-            risk_desc = "Analiza wskazuje na niskie ryzyko. To dobra wiadomość!"
-        elif prediction.probability < 0.7:
-            risk_desc = "Analiza wskazuje na umiarkowane ryzyko. Warto zwrócić uwagę na kilka czynników."
+        # Opis ryzyka
+        if ext_prob < 0.3:
+            risk_desc = (
+                f"Zewnętrzny system AI oszacował ryzyko na {ext_prob:.0%}. "
+                "To wskazuje na niskie ryzyko. To dobra wiadomość!"
+            )
+        elif ext_prob < 0.7:
+            risk_desc = (
+                f"Zewnętrzny system AI oszacował ryzyko na {ext_prob:.0%}. "
+                "To wskazuje na umiarkowane ryzyko. Warto zwrócić uwagę na kilka czynników."
+            )
         else:
-            risk_desc = "Analiza wskazuje na podwyższone ryzyko. Ważna jest regularna opieka lekarska."
+            risk_desc = (
+                f"Zewnętrzny system AI oszacował ryzyko na {ext_prob:.0%}. "
+                "To wskazuje na podwyższone ryzyko. Ważna jest regularna opieka lekarska."
+            )
 
-        main_concerns = [
-            translations.get(rf["feature"], rf["feature"])
-            for rf in demo_exp["risk_factors"][:3]
-        ]
+        # Pobierz faktyczne czynniki z SHAP jeśli dostępne
+        main_concerns = []
+        positive_factors = []
 
-        positive_factors = [
-            translations.get(pf["feature"], pf["feature"])
-            for pf in demo_exp["protective_factors"][:3]
-        ]
+        if app_state.is_loaded and app_state.explainers_ready and app_state.shap_explainer_instance:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            X = np.array(features).reshape(1, -1)
+            shap_result = app_state.shap_explainer_instance.explain_instance(X)
+
+            for fi in shap_result.get('risk_factors', [])[:3]:
+                translated = translations.get(fi['feature'], fi['feature'])
+                main_concerns.append(translated)
+
+            for fi in shap_result.get('protective_factors', [])[:3]:
+                translated = translations.get(fi['feature'], fi['feature'])
+                positive_factors.append(translated)
+
+        if not main_concerns:
+            main_concerns = ["Brak szczegółowych danych (explainer niedostępny)"]
+        if not positive_factors:
+            positive_factors = ["Brak szczegółowych danych (explainer niedostępny)"]
+
+        technical_summary = None
+        if request.health_literacy != HealthLiteracyLevel.BASIC:
+            technical_summary = {
+                "external_probability": ext_prob,
+                "n_risk_factors": len(main_concerns),
+                "n_protective_factors": len(positive_factors),
+                "explainers_available": app_state.explainers_ready
+            }
 
         return PatientExplanation(
-            risk_level=prediction.risk_level.value,
+            risk_level=risk_level.value,
             risk_description=risk_desc,
-            main_concerns=main_concerns if main_concerns else ["Brak szczególnych czynników ryzyka"],
-            positive_factors=positive_factors if positive_factors else ["Analiza trwa"],
+            main_concerns=main_concerns,
+            positive_factors=positive_factors,
             recommendations="Zalecamy omówienie tych wyników z lekarzem prowadzącym.",
-            technical_summary={
-                "probability": prediction.probability,
-                "n_risk_factors": len(demo_exp["risk_factors"]),
-                "n_protective_factors": len(demo_exp["protective_factors"])
-            } if request.health_literacy != HealthLiteracyLevel.BASIC else None,
-            disclaimer="To narzędzie ma charakter informacyjny i nie zastępuje porady lekarza."
+            technical_summary=technical_summary,
+            disclaimer=(
+                "To narzędzie wyjaśnia decyzję zewnętrznego systemu AI. "
+                "Ma charakter informacyjny i nie zastępuje porady lekarza."
+            )
         )
 
     except Exception as e:
@@ -739,41 +705,33 @@ async def get_global_importance():
     """
     Pobierz globalną ważność cech.
 
-    Zwraca ranking cech według ich wpływu na predykcje modelu.
+    Używa model.feature_importances_ zamiast hardcoded danych.
     """
-    # Demo importance
-    importance = {
-        "Wiek": 0.15,
-        "Manifestacja_Nerki": 0.12,
-        "Zaostrz_Wymagajace_OIT": 0.11,
-        "Liczba_Zajetych_Narzadow": 0.10,
-        "Manifestacja_Sercowo-Naczyniowy": 0.09,
-        "Kreatynina": 0.08,
-        "Max_CRP": 0.07,
-        "Dializa": 0.06,
-        "Manifestacja_Zajecie_CSN": 0.05,
-        "Plazmaferezy": 0.04
-    }
-
-    return GlobalImportance(
-        feature_importance=importance,
-        top_features=list(importance.keys()),
-        method="SHAP TreeExplainer (demo)",
-        n_samples=100
-    )
+    if app_state.is_loaded and app_state.model is not None:
+        importances = _get_model_importances()
+        sorted_importance = dict(
+            sorted(importances.items(), key=lambda x: x[1], reverse=True)
+        )
+        return GlobalImportance(
+            feature_importance=sorted_importance,
+            top_features=list(sorted_importance.keys()),
+            method="XGBoost feature_importances_",
+            n_samples=0
+        )
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail="Model nie jest załadowany. Nie można pobrać ważności cech."
+        )
 
 
 @app.get("/model/info", response_model=ModelInfo, tags=["Model"])
 async def get_model_info():
-    """
-    Pobierz informacje o modelu.
-
-    Zwraca metadane modelu i metryki wydajności.
-    """
+    """Pobierz informacje o modelu."""
     return ModelInfo(
-        model_type="XGBoostClassifier" if app_state.is_loaded else "Demo Model",
+        model_type="XGBoostClassifier" if app_state.is_loaded else "Niedostępny",
         n_features=len(app_state.feature_names) if app_state.feature_names else 20,
-        feature_names=app_state.feature_names or ["Wiek", "Plec", "Manifestacja_Nerki", "..."],
+        feature_names=app_state.feature_names or [],
         training_date="2024-01-15" if app_state.is_loaded else None,
         performance_metrics={
             "auc_roc": 0.85,
@@ -782,62 +740,56 @@ async def get_model_info():
             "ppv": 0.65,
             "npv": 0.90
         },
-        version="1.0.0"
+        version="2.0.0"
     )
 
 
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(request: ChatRequest):
     """
-    Rozmowa z agentem AI.
-
-    Odpowiada na pytania pacjenta/klinicysty o wyniki analizy.
+    Rozmowa z agentem AI o wyjaśnieniach decyzji zewnętrznego AI.
     """
     try:
-        # Prosty response bez RAG
         message = request.message.lower()
+        ext_prob = request.external_probability
+        risk_level = get_risk_level_from_probability(ext_prob)
 
-        # Wykryj intencję
         if any(word in message for word in ['wynik', 'analiza', 'ryzyko']):
-            prediction = await predict(request.patient)
-            response = f"""
-Na podstawie wprowadzonych danych, poziom ryzyka wynosi: **{prediction.risk_level.value}**
-(prawdopodobieństwo: {prediction.probability:.1%}).
-
-Główne czynniki brane pod uwagę to wiek, stan narządów i historia leczenia.
-
-Czy chciałbyś/chciałabyś dowiedzieć się więcej o konkretnych czynnikach?
-"""
+            response = (
+                f"Zewnętrzny system AI oszacował ryzyko zgonu na **{ext_prob:.1%}**, "
+                f"co odpowiada poziomowi: **{risk_level.value}**.\n\n"
+                "System XAI analizuje, które cechy pacjenta mogły wpłynąć na tę ocenę. "
+                "Czy chciałbyś/chciałabyś dowiedzieć się więcej o konkretnych czynnikach?"
+            )
         elif any(word in message for word in ['czynnik', 'wpływa', 'dlaczego']):
-            demo_exp = get_demo_explanation(request.patient)
-            factors = demo_exp["risk_factors"][:3]
-            response = "Główne czynniki wpływające na ocenę to:\n\n"
-            for i, f in enumerate(factors, 1):
-                response += f"{i}. {f['feature']}\n"
-            response += "\nCzy masz pytania o któryś z tych czynników?"
+            response = (
+                "Czynniki wpływające na ocenę zewnętrznego AI mogą obejmować:\n\n"
+                "1. Liczbę zajętych narządów\n"
+                "2. Manifestacje narządowe (układ oddechowy, serce, nerwy)\n"
+                "3. Historię zaostrzeń wymagających hospitalizacji/OIT\n\n"
+                "Użyj zakładek SHAP/LIME aby zobaczyć szczegółowe wyjaśnienia. "
+                "Czy masz pytania o któryś z tych czynników?"
+            )
         elif any(word in message for word in ['pomoc', 'co robić', 'zalec']):
-            response = """
-Zalecam:
-1. Regularnie konsultować się z lekarzem prowadzącym
-2. Przestrzegać zaleceń dotyczących leczenia
-3. Zgłaszać wszelkie niepokojące objawy
-
-Pamiętaj, że ta analiza jest narzędziem wspierającym - ostateczne decyzje
-dotyczące leczenia powinny być podejmowane wspólnie z lekarzem.
-"""
+            response = (
+                "Zalecam:\n"
+                "1. Regularnie konsultować się z lekarzem prowadzącym\n"
+                "2. Przestrzegać zaleceń dotyczących leczenia\n"
+                "3. Zgłaszać wszelkie niepokojące objawy\n\n"
+                "Pamiętaj, że wyjaśnienia XAI pomagają zrozumieć decyzję AI, "
+                "ale ostateczne decyzje dotyczące leczenia powinny być "
+                "podejmowane wspólnie z lekarzem."
+            )
         else:
-            response = """
-Jestem asystentem pomagającym zrozumieć wyniki analizy ryzyka.
+            response = (
+                "Jestem asystentem pomagającym zrozumieć wyjaśnienia decyzji AI.\n\n"
+                "Mogę pomóc Ci z:\n"
+                "- Wyjaśnieniem oceny zewnętrznego systemu AI\n"
+                "- Omówieniem czynników wpływających na ocenę\n"
+                "- Ogólnymi informacjami o zapaleniu naczyń\n\n"
+                "O czym chciałbyś/chciałabyś porozmawiać?"
+            )
 
-Mogę pomóc Ci z:
-- Wyjaśnieniem wyniku analizy
-- Omówieniem czynników wpływających na ocenę
-- Ogólnymi informacjami o zapaleniu naczyń
-
-O czym chciałbyś/chciałabyś porozmawiać?
-"""
-
-        # Dodaj disclaimer dla pacjentów
         if request.health_literacy != HealthLiteracyLevel.CLINICIAN:
             response += "\n\n---\n*Pamiętaj: to narzędzie informacyjne, nie zastępuje porady lekarza.*"
 
@@ -845,9 +797,9 @@ O czym chciałbyś/chciałabyś porozmawiać?
             response=response,
             detected_concerns=None,
             follow_up_suggestions=[
-                "Opowiedz mi więcej o czynnikach ryzyka",
+                "Opowiedz mi więcej o czynnikach wpływających na ocenę AI",
                 "Co mogę zrobić, aby poprawić swoje zdrowie?",
-                "Czy powinienem/powinnam martwić się wynikiem?"
+                "Jak interpretować wyjaśnienia SHAP/LIME?"
             ]
         )
 

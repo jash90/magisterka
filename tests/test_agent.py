@@ -146,16 +146,32 @@ class TestPrompts:
         assert get_risk_level(0.9) == 'high'
 
     def test_translate_feature(self):
-        """Test tłumaczenia nazw cech."""
-        assert translate_feature('Wiek') == 'Twój wiek'
+        """Test tłumaczenia nazw cech (20 cech modelu)."""
+        assert translate_feature('Wiek_rozpoznania') == 'Wiek w momencie rozpoznania choroby'
         assert translate_feature('Kreatynina') == 'Poziom wskaźnika czynności nerek'
+        assert translate_feature('Manifestacja_Oddechowy') == 'Objawy układu oddechowego'
         assert translate_feature('Unknown_Feature') == 'Unknown_Feature'
 
-    def test_feature_translations_not_empty(self):
-        """Test że słownik tłumaczeń nie jest pusty."""
-        assert len(FEATURE_TRANSLATIONS) > 0
-        assert 'Wiek' in FEATURE_TRANSLATIONS
+    def test_feature_translations_has_20_features(self):
+        """Test że słownik tłumaczeń ma 20 cech modelu."""
+        assert len(FEATURE_TRANSLATIONS) == 20
+
+    def test_feature_translations_keys(self):
+        """Test że słownik zawiera kluczowe cechy modelu."""
+        assert 'Wiek_rozpoznania' in FEATURE_TRANSLATIONS
         assert 'Kreatynina' in FEATURE_TRANSLATIONS
+        assert 'Manifestacja_Oddechowy' in FEATURE_TRANSLATIONS
+        assert 'Eozynofilia_Krwi_Obwodowej_Wartosc' in FEATURE_TRANSLATIONS
+        assert 'Powiklania_Neurologiczne' in FEATURE_TRANSLATIONS
+        assert 'Manifestacja_Miesno-Szkiel' in FEATURE_TRANSLATIONS
+
+    def test_feature_translations_no_old_keys(self):
+        """Test że stare klucze zostały usunięte."""
+        assert 'Wiek' not in FEATURE_TRANSLATIONS
+        assert 'Plec' not in FEATURE_TRANSLATIONS
+        assert 'Manifestacja_Nerki' not in FEATURE_TRANSLATIONS
+        assert 'Max_CRP' not in FEATURE_TRANSLATIONS
+        assert 'Dializa' not in FEATURE_TRANSLATIONS
 
     def test_risk_level_descriptions(self):
         """Test opisów poziomów ryzyka."""
@@ -164,10 +180,16 @@ class TestPrompts:
             assert 'patient' in RISK_LEVEL_DESCRIPTIONS[level]
             assert 'clinician' in RISK_LEVEL_DESCRIPTIONS[level]
 
+    def test_risk_level_descriptions_mention_external_ai(self):
+        """Test że opisy ryzyka odnoszą się do zewnętrznego AI."""
+        for level in ['low', 'moderate', 'high']:
+            patient_desc = RISK_LEVEL_DESCRIPTIONS[level]['patient']
+            assert 'zewnętrzny' in patient_desc.lower() or 'ai' in patient_desc.lower()
+
     def test_format_risk_factors_patient(self):
         """Test formatowania czynników ryzyka."""
         factors = [
-            {'feature': 'Wiek', 'contribution': 0.2},
+            {'feature': 'Wiek_rozpoznania', 'contribution': 0.2},
             {'feature': 'Kreatynina', 'contribution': 0.15}
         ]
 

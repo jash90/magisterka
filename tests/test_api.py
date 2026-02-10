@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.api.schemas import (
     PatientInput, PredictionOutput, RiskLevel, HealthLiteracyLevel,
+    AnalysisRequest, AnalysisOutput, BatchAnalysisInput,
     patient_to_array, get_risk_level_from_probability
 )
 
@@ -20,43 +21,58 @@ class TestSchemas:
     def test_patient_input_valid(self):
         """Test poprawnych danych pacjenta."""
         patient = PatientInput(
-            wiek=55,
-            plec=1,
             wiek_rozpoznania=50,
+            opoznienie_rozpoznia=6,
+            manifestacja_miesno_szkiel=0,
+            manifestacja_skora=1,
+            manifestacja_wzrok=0,
+            manifestacja_nos_ucho_gardlo=0,
+            manifestacja_oddechowy=1,
+            manifestacja_sercowo_naczyniowy=0,
+            manifestacja_pokarmowy=0,
+            manifestacja_moczowo_plciowy=0,
+            manifestacja_zajecie_csn=0,
+            manifestacja_neurologiczny=1,
             liczba_zajetych_narzadow=3,
-            manifestacja_nerki=1,
+            zaostrz_wymagajace_hospital=1,
             zaostrz_wymagajace_oit=0,
-            kreatynina=100.0,
-            max_crp=30.0
+            kreatynina=120.0,
+            czas_sterydow=12,
+            plazmaferezy=0,
+            eozynofilia_krwi_obwodowej_wartosc=8.5,
+            powiklania_neurologiczne=0
         )
 
-        assert patient.wiek == 55
-        assert patient.plec == 1
-        assert patient.manifestacja_nerki == 1
+        assert patient.wiek_rozpoznania == 50
+        assert patient.manifestacja_skora == 1
+        assert patient.liczba_zajetych_narzadow == 3
 
     def test_patient_input_defaults(self):
         """Test wartości domyślnych."""
-        patient = PatientInput(
-            wiek=50,
-            plec=0
-        )
+        patient = PatientInput()
 
+        assert patient.wiek_rozpoznania == 50.0
         assert patient.liczba_zajetych_narzadow == 0
-        assert patient.manifestacja_nerki == 0
-        assert patient.dializa == 0
+        assert patient.manifestacja_oddechowy == 0
+        assert patient.kreatynina == 100.0
+        assert patient.eozynofilia_krwi_obwodowej_wartosc == 0.0
+        assert patient.powiklania_neurologiczne == 0
 
     def test_patient_input_validation_age(self):
-        """Test walidacji wieku."""
+        """Test walidacji wieku rozpoznania."""
         with pytest.raises(ValueError):
-            PatientInput(wiek=-5, plec=0)
+            PatientInput(wiek_rozpoznania=-5)
 
         with pytest.raises(ValueError):
-            PatientInput(wiek=150, plec=0)
+            PatientInput(wiek_rozpoznania=150)
 
-    def test_patient_input_validation_sex(self):
-        """Test walidacji płci."""
+    def test_patient_input_validation_binary(self):
+        """Test walidacji pól binarnych."""
         with pytest.raises(ValueError):
-            PatientInput(wiek=50, plec=2)
+            PatientInput(manifestacja_skora=2)
+
+        with pytest.raises(ValueError):
+            PatientInput(plazmaferezy=-1)
 
     def test_prediction_output_valid(self):
         """Test poprawnego wyniku predykcji."""
@@ -92,23 +108,48 @@ class TestSchemas:
         assert get_risk_level_from_probability(0.95) == RiskLevel.HIGH
 
     def test_patient_to_array(self):
-        """Test konwersji pacjenta do tablicy."""
+        """Test konwersji pacjenta do tablicy (20 cech)."""
         patient = PatientInput(
-            wiek=55,
-            plec=1,
-            kreatynina=100.0,
-            max_crp=30.0
+            wiek_rozpoznania=55,
+            kreatynina=120.0,
+            manifestacja_oddechowy=1,
+            liczba_zajetych_narzadow=3
         )
 
-        feature_order = ['Wiek', 'Plec', 'Kreatynina', 'Max_CRP']
+        feature_order = [
+            'Wiek_rozpoznania', 'Opoznienie_Rozpoznia',
+            'Manifestacja_Miesno-Szkiel', 'Manifestacja_Skora',
+            'Manifestacja_Wzrok', 'Manifestacja_Nos/Ucho/Gardlo',
+            'Manifestacja_Oddechowy', 'Manifestacja_Sercowo-Naczyniowy',
+            'Manifestacja_Pokarmowy', 'Manifestacja_Moczowo-Plciowy',
+            'Manifestacja_Zajecie_CSN', 'Manifestacja_Neurologiczny',
+            'Liczba_Zajetych_Narzadow', 'Zaostrz_Wymagajace_Hospital',
+            'Zaostrz_Wymagajace_OIT', 'Kreatynina',
+            'Czas_Sterydow', 'Plazmaferezy',
+            'Eozynofilia_Krwi_Obwodowej_Wartosc', 'Powiklania_Neurologiczne'
+        ]
 
         arr = patient_to_array(patient, feature_order)
 
-        assert len(arr) == 4
-        assert arr[0] == 55  # Wiek
-        assert arr[1] == 1   # Plec
-        assert arr[2] == 100.0  # Kreatynina
-        assert arr[3] == 30.0   # Max_CRP
+        assert len(arr) == 20
+        assert arr[0] == 55    # Wiek_rozpoznania
+        assert arr[6] == 1     # Manifestacja_Oddechowy
+        assert arr[12] == 3    # Liczba_Zajetych_Narzadow
+        assert arr[15] == 120.0  # Kreatynina
+
+    def test_patient_to_array_partial(self):
+        """Test konwersji z podzbiorem cech."""
+        patient = PatientInput(
+            wiek_rozpoznania=60,
+            kreatynina=150.0
+        )
+
+        feature_order = ['Wiek_rozpoznania', 'Kreatynina']
+        arr = patient_to_array(patient, feature_order)
+
+        assert len(arr) == 2
+        assert arr[0] == 60
+        assert arr[1] == 150.0
 
     def test_health_literacy_levels(self):
         """Test poziomów health literacy."""
@@ -121,6 +162,56 @@ class TestSchemas:
         assert RiskLevel.LOW.value == "low"
         assert RiskLevel.MODERATE.value == "moderate"
         assert RiskLevel.HIGH.value == "high"
+
+    def test_analysis_request(self):
+        """Test schematu AnalysisRequest."""
+        request = AnalysisRequest(
+            patient=PatientInput(wiek_rozpoznania=55, kreatynina=120.0),
+            external_probability=0.65
+        )
+
+        assert request.external_probability == 0.65
+        assert request.patient.wiek_rozpoznania == 55
+
+    def test_analysis_request_probability_bounds(self):
+        """Test walidacji external_probability."""
+        with pytest.raises(ValueError):
+            AnalysisRequest(
+                patient=PatientInput(),
+                external_probability=1.5
+            )
+
+        with pytest.raises(ValueError):
+            AnalysisRequest(
+                patient=PatientInput(),
+                external_probability=-0.1
+            )
+
+    def test_batch_analysis_input(self):
+        """Test schematu BatchAnalysisInput."""
+        batch = BatchAnalysisInput(
+            patients=[PatientInput(), PatientInput()],
+            external_probabilities=[0.3, 0.7]
+        )
+
+        assert len(batch.patients) == 2
+        assert len(batch.external_probabilities) == 2
+
+    def test_batch_analysis_length_mismatch(self):
+        """Test walidacji: długość patients != external_probabilities."""
+        with pytest.raises(ValueError):
+            BatchAnalysisInput(
+                patients=[PatientInput(), PatientInput()],
+                external_probabilities=[0.3]
+            )
+
+    def test_batch_analysis_probability_validation(self):
+        """Test walidacji prawdopodobieństw w batch."""
+        with pytest.raises(ValueError):
+            BatchAnalysisInput(
+                patients=[PatientInput()],
+                external_probabilities=[1.5]
+            )
 
 
 class TestAPIEndpoints:
@@ -139,12 +230,26 @@ class TestAPIEndpoints:
 
         assert "/" in routes
         assert "/health" in routes
-        assert "/predict" in routes
+        assert "/analyze" in routes
         assert "/explain/shap" in routes
         assert "/explain/lime" in routes
         assert "/explain/patient" in routes
         assert "/model/info" in routes
         assert "/chat" in routes
+
+    def test_analyze_route_exists(self):
+        """Test że /analyze route istnieje."""
+        from src.api.main import app
+
+        routes = [route.path for route in app.routes]
+        assert "/analyze" in routes
+
+    def test_batch_analyze_route_exists(self):
+        """Test że /analyze/batch route istnieje."""
+        from src.api.main import app
+
+        routes = [route.path for route in app.routes]
+        assert "/analyze/batch" in routes
 
 
 # Testy integracyjne (wymagają uruchomionego serwera)
@@ -166,28 +271,33 @@ class TestAPIIntegration:
         data = response.json()
         assert data["status"] == "healthy"
 
-    def test_predict(self, client):
-        """Test predykcji."""
-        patient_data = {
-            "wiek": 55,
-            "plec": 1,
-            "liczba_zajetych_narzadow": 3,
-            "manifestacja_nerki": 1
+    def test_analyze(self, client):
+        """Test analizy z external_probability."""
+        request_data = {
+            "patient": {
+                "wiek_rozpoznania": 55,
+                "kreatynina": 120.0,
+                "manifestacja_oddechowy": 1,
+                "liczba_zajetych_narzadow": 3
+            },
+            "external_probability": 0.65
         }
 
-        response = client.post("/predict", json=patient_data)
+        response = client.post("/analyze", json=request_data)
         assert response.status_code == 200
         data = response.json()
-        assert "probability" in data
+        assert "external_probability" in data
         assert "risk_level" in data
+        assert data["external_probability"] == 0.65
 
     def test_explain_shap(self, client):
         """Test wyjaśnienia SHAP."""
         request_data = {
             "patient": {
-                "wiek": 55,
-                "plec": 1
+                "wiek_rozpoznania": 55,
+                "kreatynina": 120.0
             },
+            "external_probability": 0.5,
             "method": "shap",
             "num_features": 5
         }

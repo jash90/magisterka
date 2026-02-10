@@ -136,15 +136,30 @@ class SHAPExplainer:
         else:
             shap_values = self.explainer.shap_values(instance)
 
-        # Dla klasyfikacji binarnej - weź wartości dla klasy pozytywnej
+        # Wyodrębnij SHAP values i base_value
+        # Obsługa różnych formatów zwracanych przez SHAP (zależnych od wersji)
+        expected = self.explainer.expected_value
+
         if isinstance(shap_values, list):
-            shap_vals = shap_values[1][0]  # Klasa 1 (zgon), pierwsza instancja
-            base_value = self.explainer.expected_value[1]
+            if len(shap_values) >= 2:
+                # Dwie klasy — bierzemy klasę pozytywną (index 1)
+                shap_vals = shap_values[1][0]
+            else:
+                # Jedna tablica — bierzemy jedyną
+                shap_vals = shap_values[0][0]
+        elif shap_values.ndim == 3:
+            # Shape (n_outputs, n_samples, n_features)
+            shap_vals = shap_values[-1][0]
         else:
+            # Shape (n_samples, n_features)
             shap_vals = shap_values[0]
-            base_value = self.explainer.expected_value
-            if isinstance(base_value, np.ndarray):
-                base_value = base_value[0]
+
+        # Base value — obsługa scalar, 1-elem array, 2-elem array
+        if isinstance(expected, (list, np.ndarray)):
+            expected = np.asarray(expected).ravel()
+            base_value = float(expected[-1])
+        else:
+            base_value = float(expected)
 
         # Predykcja
         if hasattr(self.model, 'predict_proba'):
@@ -217,15 +232,25 @@ class SHAPExplainer:
         else:
             shap_values = self.explainer.shap_values(X_sample)
 
-        # Dla klasyfikacji binarnej
+        # Wyodrębnij SHAP values — obsługa różnych formatów
+        expected = self.explainer.expected_value
+
         if isinstance(shap_values, list):
-            shap_vals = np.array(shap_values[1])
-            base_value = self.explainer.expected_value[1]
+            if len(shap_values) >= 2:
+                shap_vals = np.array(shap_values[1])
+            else:
+                shap_vals = np.array(shap_values[0])
+        elif shap_values.ndim == 3:
+            shap_vals = np.array(shap_values[-1])
         else:
             shap_vals = np.array(shap_values)
-            base_value = self.explainer.expected_value
-            if isinstance(base_value, np.ndarray):
-                base_value = base_value[0]
+
+        # Base value — obsługa scalar, 1-elem array, 2-elem array
+        if isinstance(expected, (list, np.ndarray)):
+            expected = np.asarray(expected).ravel()
+            base_value = float(expected[-1])
+        else:
+            base_value = float(expected)
 
         return {
             'shap_values': shap_vals,
