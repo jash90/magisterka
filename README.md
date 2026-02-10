@@ -69,12 +69,46 @@ The system addresses the challenge of making machine learning predictions in hea
 ## Prerequisites
 
 - **Python 3.10+**
-- **pip** (or conda)
+- **Miniconda or Anaconda** (recommended, especially on Windows)
 - **OpenAI API key** (optional, needed only for the LLM conversational agent; the rest of the system works without it)
 
 ## Installation
 
-### 1. Clone and set up the virtual environment
+### Option A: Conda (recommended, works on Windows/macOS/Linux)
+
+Conda handles native C/C++ dependencies (LightGBM, SHAP, ChromaDB) automatically, avoiding compilation issues on Windows.
+
+#### 1. Install Miniconda
+
+Download from https://docs.conda.io/en/latest/miniconda.html and follow the installer.
+
+#### 2. Create the environment
+
+```bash
+git clone <repository-url>
+cd vasculitis-xai
+
+conda env create -f environment.yml
+conda activate vasculitis-xai
+```
+
+#### 3. Install the package in development mode (optional)
+
+```bash
+pip install -e . --no-deps
+```
+
+#### Updating the environment
+
+After pulling new changes that modify `environment.yml`:
+
+```bash
+conda env update -f environment.yml --prune
+```
+
+### Option B: pip + venv (macOS/Linux)
+
+Use this if you prefer pip. On Windows this may require [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) for packages with C extensions (SHAP, LightGBM, ChromaDB).
 
 ```bash
 git clone <repository-url>
@@ -85,14 +119,7 @@ source venv/bin/activate  # Linux/macOS
 # or: venv\Scripts\activate  # Windows
 
 pip install -r requirements.txt
-```
-
-### 2. Install the package in development mode (optional)
-
-This registers the `vasculitis-api` console command and makes the `src` package importable from anywhere:
-
-```bash
-pip install -e .
+pip install -e .  # optional
 ```
 
 ## Configuration
@@ -149,11 +176,11 @@ Open two terminals:
 
 ```bash
 # Terminal 1 - API
-source venv/bin/activate
+conda activate vasculitis-xai
 uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 # Terminal 2 - Dashboard
-source venv/bin/activate
+conda activate vasculitis-xai
 streamlit run dashboard/streamlit_app.py
 ```
 
@@ -220,7 +247,8 @@ vasculitis-xai/
 │   └── saved/                       # Trained model artifacts (.joblib) and feature names (.json)
 ├── docs/                            # Documentation
 ├── scripts/                         # Utility scripts
-├── requirements.txt                 # Python dependencies
+├── environment.yml                  # Conda environment (recommended)
+├── requirements.txt                 # Python dependencies (pip fallback)
 ├── setup.py                         # Package setup (registers vasculitis-api command)
 ├── .env.example                     # Environment variable template
 ├── Dockerfile                       # Docker image for the API
@@ -406,6 +434,8 @@ The Streamlit dashboard provides two analysis modes:
 ## Testing
 
 ```bash
+conda activate vasculitis-xai  # or: source venv/bin/activate
+
 # Run all tests
 pytest tests/ -v
 

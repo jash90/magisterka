@@ -37,7 +37,7 @@ class GuardrailsChecker:
             r'targnąć\s+się\s+na\s+życie',
             r'odebrać\s+(sobie\s+)?życie',
             r'skończyć\s+z\s+życiem',
-            r'nie\s+chcę\s+żyć',
+            r'nie\s+chcę\s+(\w+\s+)?żyć',
             r'chcę\s+umrzeć',
             r'samookaleczen\w*',
             r'skaleczyć\s+się',
@@ -68,12 +68,12 @@ class GuardrailsChecker:
             r'przepisz\s+mi',
             r'co\s+powinienem\s+zażywać',
             r'zmień\s+mi\s+dawkę',
-            r'zwiększ\s+dawkę',
+            r'zwięks\w*\s+dawkę',
             r'zmniejsz\s+dawkę',
             r'odstawić\s+lek',
 
             # Prośby o prognozę
-            r'ile\s+będę\s+żyć',
+            r'ile\s+będę\s+(\w+\s+)?żyć',
             r'jak\s+długo\s+jeszcze',
             r'kiedy\s+umrę',
             r'jaka\s+jest\s+moja\s+szansa',
@@ -157,7 +157,7 @@ class GuardrailsChecker:
                     return self._get_medication_redirect()
 
                 if any(re.search(p, query, re.IGNORECASE) for p in [
-                    r'ile\s+będę\s+żyć', r'kiedy\s+umrę', r'szansa'
+                    r'ile\s+będę\s+(\w+\s+)?żyć', r'kiedy\s+umrę', r'szansa'
                 ]):
                     return self._get_prognosis_redirect()
 
