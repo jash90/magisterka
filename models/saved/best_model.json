@@ -7,10 +7,9 @@
     "Manifestacja_Miesno-Szkiel",
     "Manifestacja_Skora",
     "Manifestacja_Wzrok",
-    "Manifestacja_Nos/Ucho/Gardlo",
-    "Manifestacja_Oddechowy",
     "Manifestacja_Sercowo-Naczyniowy",
     "Manifestacja_Pokarmowy",
+    "Manifestacja_Nerki",
     "Manifestacja_Moczowo-Plciowy",
     "Manifestacja_Zajecie_CSN",
     "Manifestacja_Neurologiczny",
@@ -18,16 +17,17 @@
     "Zaostrz_Wymagajace_Hospital",
     "Zaostrz_Wymagajace_OIT",
     "Kreatynina",
+    "Pulsy",
     "Czas_Sterydow",
     "Plazmaferezy",
     "Eozynofilia_Krwi_Obwodowej_Wartosc",
-    "Powiklania_Neurologiczne"
+    "Biopsja_Wynik"
   ],
   "training_history": [
     {
-      "timestamp": "2025-12-06T12:10:00.092179",
+      "timestamp": "2026-03-13T21:36:46.122318",
       "action": "fit",
-      "training_time": 0.228162,
+      "training_time": 0.224711,
       "n_samples": 719,
       "n_features": 20
     }
@@ -45,5 +45,5 @@
     "eval_metric": "auc",
     "use_label_encoder": false
   },
-  "timestamp": "2025-12-06T12:10:00.097522"
+  "timestamp": "2026-03-13T21:36:46.127916"
 }
