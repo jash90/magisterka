@@ -37,63 +37,64 @@ class XAIMethod(str, Enum):
 # ============================================================================
 
 class PatientInput(BaseModel):
-    """Dane wejściowe pacjenta."""
+    """Dane wejściowe pacjenta — 20 cech zgodnych z modelem XGBoost."""
 
     # Dane demograficzne
-    wiek: float = Field(..., ge=0, le=120, description="Wiek pacjenta")
-    plec: int = Field(..., ge=0, le=1, description="Płeć (0=K, 1=M)")
     wiek_rozpoznania: Optional[float] = Field(None, ge=0, le=120, description="Wiek w momencie rozpoznania")
-
-    # Opóźnienie diagnostyczne
     opoznienie_rozpoznia: Optional[float] = Field(None, ge=0, description="Opóźnienie rozpoznania (miesiące)")
 
     # Manifestacje narządowe
+    manifestacja_miesno_szkiel: int = Field(0, ge=0, le=1, description="Mięśniowo-szkieletowy")
+    manifestacja_skora: int = Field(0, ge=0, le=1, description="Skóra")
+    manifestacja_wzrok: int = Field(0, ge=0, le=1, description="Wzrok")
+    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=1, description="Sercowo-naczyniowy")
+    manifestacja_pokarmowy: int = Field(0, ge=0, le=1, description="Pokarmowy")
+    manifestacja_nerki: int = Field(0, ge=0, le=1, description="Nerki")
+    manifestacja_moczowo_plciowy: int = Field(0, ge=0, le=1, description="Moczowo-płciowy")
+    manifestacja_zajecie_csn: int = Field(0, ge=0, le=1, description="Zajęcie CSN")
+    manifestacja_neurologiczny: int = Field(0, ge=0, le=1, description="Neurologiczny")
     liczba_zajetych_narzadow: int = Field(0, ge=0, le=20, description="Liczba zajętych narządów")
-    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=1)
-    manifestacja_nerki: int = Field(0, ge=0, le=1)
-    manifestacja_pokarmowy: int = Field(0, ge=0, le=1)
-    manifestacja_zajecie_csn: int = Field(0, ge=0, le=1)
-    manifestacja_neurologiczny: int = Field(0, ge=0, le=1)
 
     # Przebieg choroby
+    zaostrz_wymagajace_hospital: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające hospitalizacji")
     zaostrz_wymagajace_oit: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające OIT")
 
     # Parametry laboratoryjne
     kreatynina: Optional[float] = Field(None, ge=0, description="Kreatynina (μmol/L)")
-    max_crp: Optional[float] = Field(None, ge=0, description="Maksymalne CRP (mg/L)")
+    eozynofilia_krwi_obwodowej_wartosc: Optional[float] = Field(None, ge=0, description="Eozynofilia krwi obwodowej (wartość)")
 
     # Leczenie
-    plazmaferezy: int = Field(0, ge=0, le=1)
-    dializa: int = Field(0, ge=0, le=1)
-    sterydy_dawka_g: Optional[float] = Field(None, ge=0, description="Dawka sterydów (g)")
+    pulsy: int = Field(0, ge=0, le=1, description="Pulsy sterydowe IV")
     czas_sterydow: Optional[float] = Field(None, ge=0, description="Czas sterydów (miesiące)")
+    plazmaferezy: int = Field(0, ge=0, le=1, description="Plazmaferezy")
 
-    # Powikłania
-    powiklania_serce_pluca: int = Field(0, ge=0, le=1)
-    powiklania_infekcja: int = Field(0, ge=0, le=1)
+    # Diagnostyka
+    biopsja_wynik: int = Field(0, ge=0, le=1, description="Wynik biopsji (0=brak/ujemny, 1=dodatni)")
 
     class Config:
-        schema_extra = {
+        extra = "ignore"
+        json_schema_extra = {
             "example": {
-                "wiek": 55,
-                "plec": 1,
                 "wiek_rozpoznania": 50,
                 "opoznienie_rozpoznia": 6,
-                "liczba_zajetych_narzadow": 3,
+                "manifestacja_miesno_szkiel": 0,
+                "manifestacja_skora": 0,
+                "manifestacja_wzrok": 0,
                 "manifestacja_sercowo_naczyniowy": 0,
                 "manifestacja_nerki": 1,
                 "manifestacja_pokarmowy": 0,
+                "manifestacja_moczowo_plciowy": 0,
                 "manifestacja_zajecie_csn": 0,
                 "manifestacja_neurologiczny": 1,
+                "liczba_zajetych_narzadow": 3,
+                "zaostrz_wymagajace_hospital": 1,
                 "zaostrz_wymagajace_oit": 0,
                 "kreatynina": 120,
-                "max_crp": 45,
-                "plazmaferezy": 0,
-                "dializa": 0,
-                "sterydy_dawka_g": 0.5,
+                "eozynofilia_krwi_obwodowej_wartosc": 0.5,
+                "pulsy": 0,
                 "czas_sterydow": 12,
-                "powiklania_serce_pluca": 0,
-                "powiklania_infekcja": 0
+                "plazmaferezy": 0,
+                "biopsja_wynik": 1
             }
         }
 
@@ -362,27 +363,28 @@ def patient_to_array(patient: PatientInput, feature_order: List[str]) -> List[fl
     Returns:
         Lista wartości cech
     """
-    # Mapowanie nazw z Pydantic na nazwy w modelu
+    # Mapowanie nazw z Pydantic na nazwy w modelu (20 cech XGBoost)
     field_mapping = {
-        'wiek': 'Wiek',
-        'plec': 'Plec',
         'wiek_rozpoznania': 'Wiek_rozpoznania',
         'opoznienie_rozpoznia': 'Opoznienie_Rozpoznia',
-        'liczba_zajetych_narzadow': 'Liczba_Zajetych_Narzadow',
+        'manifestacja_miesno_szkiel': 'Manifestacja_Miesno-Szkiel',
+        'manifestacja_skora': 'Manifestacja_Skora',
+        'manifestacja_wzrok': 'Manifestacja_Wzrok',
         'manifestacja_sercowo_naczyniowy': 'Manifestacja_Sercowo-Naczyniowy',
-        'manifestacja_nerki': 'Manifestacja_Nerki',
         'manifestacja_pokarmowy': 'Manifestacja_Pokarmowy',
+        'manifestacja_nerki': 'Manifestacja_Nerki',
+        'manifestacja_moczowo_plciowy': 'Manifestacja_Moczowo-Plciowy',
         'manifestacja_zajecie_csn': 'Manifestacja_Zajecie_CSN',
         'manifestacja_neurologiczny': 'Manifestacja_Neurologiczny',
+        'liczba_zajetych_narzadow': 'Liczba_Zajetych_Narzadow',
+        'zaostrz_wymagajace_hospital': 'Zaostrz_Wymagajace_Hospital',
         'zaostrz_wymagajace_oit': 'Zaostrz_Wymagajace_OIT',
         'kreatynina': 'Kreatynina',
-        'max_crp': 'Max_CRP',
-        'plazmaferezy': 'Plazmaferezy',
-        'dializa': 'Dializa',
-        'sterydy_dawka_g': 'Sterydy_Dawka_g',
+        'pulsy': 'Pulsy',
         'czas_sterydow': 'Czas_Sterydow',
-        'powiklania_serce_pluca': 'Powiklania_Serce/pluca',
-        'powiklania_infekcja': 'Powiklania_Infekcja'
+        'plazmaferezy': 'Plazmaferezy',
+        'eozynofilia_krwi_obwodowej_wartosc': 'Eozynofilia_Krwi_Obwodowej_Wartosc',
+        'biopsja_wynik': 'Biopsja_Wynik',
     }
 
     # Odwróć mapowanie
