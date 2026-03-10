@@ -34,6 +34,20 @@ export interface PredictionOutput {
   confidence_interval?: { lower: number; upper: number };
 }
 
+export interface ModelPrediction {
+  model_name: string;
+  probability: number;
+  risk_level: RiskLevel;
+  prediction: number;
+}
+
+export interface MultiModelPredictionOutput {
+  models: ModelPrediction[];
+  ensemble_probability: number;
+  ensemble_risk_level: RiskLevel;
+  primary_model: string;
+}
+
 export interface FeatureContribution {
   feature: string;
   value: number;
@@ -76,10 +90,37 @@ export interface ChatRequest {
   conversation_history: Array<{ role: string; content: string }>;
 }
 
+export interface ChatPredictionData {
+  prediction: PredictionOutput;
+  factors: Array<{ feature: string; contribution: number; direction: string }>;
+  base_value: number;
+}
+
 export interface ChatResponse {
   response: string;
   detected_concerns?: string[];
   follow_up_suggestions?: string[];
+  prediction_data?: ChatPredictionData | null;
+}
+
+export interface AgentConversationResponse {
+  response: string;
+  collected_data: Record<string, number | string>;
+  current_step: number;
+  phase: 'collecting' | 'prediction' | 'discussion';
+  missing_fields: string[];
+  prediction_data?: ChatPredictionData | null;
+  follow_up_suggestions: string[];
+  field_meta?: {
+    field: string;
+    type: 'number' | 'boolean';
+    widget: 'slider' | 'buttons' | 'input';
+    min?: number;
+    max?: number;
+    step?: number;
+    unit?: string;
+    options?: string[];
+  } | null;
 }
 
 export interface ExplanationRequest {

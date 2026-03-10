@@ -12,10 +12,17 @@ import type {
   BatchPredictionOutput,
   DemoModeStatus,
   HealthCheckResponse,
+  AgentConversationResponse,
+  MultiModelPredictionOutput,
 } from './types';
 
 export async function predict(patient: PatientInput): Promise<PredictionOutput> {
   const { data } = await apiClient.post<PredictionOutput>('/predict', patient);
+  return data;
+}
+
+export async function predictAll(patient: PatientInput): Promise<MultiModelPredictionOutput> {
+  const { data } = await apiClient.post<MultiModelPredictionOutput>('/predict/all', patient);
   return data;
 }
 
@@ -53,5 +60,18 @@ export async function getDemoMode(): Promise<DemoModeStatus> {
 
 export async function getHealth(): Promise<HealthCheckResponse> {
   const { data } = await apiClient.get<HealthCheckResponse>('/health');
+  return data;
+}
+
+export interface AgentChatPayload {
+  message: string;
+  conversation_history: Array<{ role: string; content: string }>;
+  collected_data: Record<string, number | string>;
+  current_step: number;
+  phase: 'collecting' | 'prediction' | 'discussion';
+}
+
+export async function agentChat(req: AgentChatPayload): Promise<AgentConversationResponse> {
+  const { data } = await apiClient.post<AgentConversationResponse>('/agent/chat', req);
   return data;
 }

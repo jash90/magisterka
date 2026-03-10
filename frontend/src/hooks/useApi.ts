@@ -26,6 +26,12 @@ export function usePredict() {
   });
 }
 
+export function usePredictAll() {
+  return useMutation({
+    mutationFn: (patient: PatientInput) => api.predictAll(patient),
+  });
+}
+
 export function useExplainShap() {
   return useMutation({
     mutationFn: (req: ExplanationRequest) => api.explainShap(req),
@@ -53,5 +59,11 @@ export function useChat() {
 export function useBatchPredict() {
   return useMutation({
     mutationFn: (input: BatchPatientInput) => api.predictBatch(input),
+  });
+}
+
+export function useAgentChat() {
+  return useMutation({
+    mutationFn: (req: api.AgentChatPayload) => api.agentChat(req),
   });
 }
