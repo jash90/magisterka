@@ -1,0 +1,65 @@
+{
+  "created_at": "2026-02-19T00:17:14.750022",
+  "n_train_samples": 719,
+  "n_test_samples": 180,
+  "n_features": 19,
+  "feature_names_file": "feature_names.json",
+  "default_model": "calibrated_svm",
+  "models": {
+    "random_forest": {
+      "display_name": "Random Forest",
+      "file": "random_forest.joblib",
+      "metadata_file": "random_forest.json",
+      "metrics": {
+        "auc_roc": 0.848,
+        "accuracy": 0.8778,
+        "sensitivity": 0.5263
+      },
+      "trained_at": "2026-02-19T00:17:14.906556"
+    },
+    "naive_bayes": {
+      "display_name": "Naive Bayes",
+      "file": "naive_bayes.joblib",
+      "metadata_file": "naive_bayes.json",
+      "metrics": {
+        "auc_roc": 0.8567,
+        "accuracy": 0.8722,
+        "sensitivity": 0.5
+      },
+      "trained_at": "2026-02-19T00:17:14.912677"
+    },
+    "calibrated_svm": {
+      "display_name": "Calibrated SVM",
+      "file": "calibrated_svm.joblib",
+      "metadata_file": "calibrated_svm.json",
+      "metrics": {
+        "auc_roc": 0.8834,
+        "accuracy": 0.8611,
+        "sensitivity": 0.5789
+      },
+      "trained_at": "2026-02-19T00:17:15.020515"
+    },
+    "xgboost": {
+      "display_name": "XGBoost",
+      "file": "xgboost.joblib",
+      "metadata_file": "xgboost.json",
+      "metrics": {
+        "auc_roc": 0.8514,
+        "accuracy": 0.8778,
+        "sensitivity": 0.6053
+      },
+      "trained_at": "2026-02-19T00:17:15.389264"
+    },
+    "stacking_ensemble": {
+      "display_name": "Stacking Ensemble",
+      "file": "stacking_ensemble.joblib",
+      "metadata_file": "stacking_ensemble.json",
+      "metrics": {
+        "auc_roc": 0.8632,
+        "accuracy": 0.8833,
+        "sensitivity": 0.5263
+      },
+      "trained_at": "2026-02-19T00:17:20.887512"
+    }
+  }
+}

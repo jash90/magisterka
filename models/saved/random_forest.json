@@ -1,0 +1,44 @@
+{
+  "model_type": "random_forest",
+  "best_params": null,
+  "feature_names": [
+    "Wiek",
+    "Plec",
+    "Wiek_rozpoznania",
+    "Opoznienie_Rozpoznia",
+    "Liczba_Zajetych_Narzadow",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Nerki",
+    "Manifestacja_Pokarmowy",
+    "Manifestacja_Zajecie_CSN",
+    "Manifestacja_Neurologiczny",
+    "Zaostrz_Wymagajace_OIT",
+    "Kreatynina",
+    "Max_CRP",
+    "Plazmaferezy",
+    "Dializa",
+    "Sterydy_Dawka_g",
+    "Czas_Sterydow",
+    "Powiklania_Serce/pluca",
+    "Powiklania_Infekcja"
+  ],
+  "training_history": [
+    {
+      "timestamp": "2026-02-19T00:17:14.853458",
+      "action": "fit",
+      "training_time": 0.103303,
+      "n_samples": 719,
+      "n_features": 19
+    }
+  ],
+  "base_params": {
+    "n_estimators": 100,
+    "max_depth": 10,
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "class_weight": "balanced",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "timestamp": "2026-02-19T00:17:14.906202"
+}

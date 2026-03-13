@@ -1,0 +1,42 @@
+{
+  "model_type": "logistic_regression",
+  "best_params": null,
+  "feature_names": [
+    "Wiek",
+    "Plec",
+    "Wiek_rozpoznania",
+    "Manifestacja_Nerki",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Oddechowy",
+    "Manifestacja_Neurologiczny",
+    "Liczba_Zajetych_Narzadow",
+    "Zaostrz_Wymagajace_OIT",
+    "Zaostrz_Wymagajace_Hospital",
+    "Kreatynina",
+    "Max_CRP",
+    "Plazmaferezy",
+    "Pulsy",
+    "Sterydy_Dawka_g",
+    "Czas_Sterydow",
+    "Powiklania_Serce/pluca",
+    "Powiklania_Infekcja"
+  ],
+  "training_history": [
+    {
+      "timestamp": "2026-03-03T15:09:15.457503",
+      "action": "fit",
+      "training_time": 0.004263,
+      "n_samples": 719,
+      "n_features": 18
+    }
+  ],
+  "base_params": {
+    "penalty": "l2",
+    "C": 1.0,
+    "class_weight": "balanced",
+    "solver": "lbfgs",
+    "max_iter": 1000,
+    "random_state": 42
+  },
+  "timestamp": "2026-03-03T15:09:15.460322"
+}

@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import json
 import logging
 
@@ -204,12 +204,9 @@ class XAIComparison:
         """Oblicz korelacje Spearmana między metodami."""
         methods = list(importance_scores.keys())
 
-        # Znajdź wspólne cechy
-        all_features = set()
-        for scores in importance_scores.values():
-            all_features.update(scores.keys())
-
-        common_features = list(all_features)
+        # Znajdź wspólne cechy (przecięcie, żeby nie zaburzać korelacji zerami)
+        feature_sets = [set(scores.keys()) for scores in importance_scores.values()]
+        common_features = list(set.intersection(*feature_sets)) if feature_sets else []
 
         # Utwórz macierz scores
         scores_matrix = {}

@@ -138,7 +138,12 @@ class SHAPExplainer:
 
         # Dla klasyfikacji binarnej - weź wartości dla klasy pozytywnej
         if isinstance(shap_values, list):
+            # Stary format SHAP (<0.50): list of arrays per class
             shap_vals = shap_values[1][0]  # Klasa 1 (zgon), pierwsza instancja
+            base_value = self.explainer.expected_value[1]
+        elif shap_values.ndim == 3:
+            # Nowy format SHAP (>=0.50): 3D array (n_samples, n_features, n_classes)
+            shap_vals = shap_values[0, :, 1]  # Pierwsza instancja, klasa 1
             base_value = self.explainer.expected_value[1]
         else:
             shap_vals = shap_values[0]
@@ -172,7 +177,7 @@ class SHAPExplainer:
                     'feature': feat,
                     'shap_value': float(shap_val),
                     'feature_value': float(feat_val),
-                    'direction': 'zwiększa ryzyko' if shap_val > 0 else 'zmniejsza ryzyko'
+                    'direction': 'increases_risk' if shap_val > 0 else 'decreases_risk'
                 }
                 for feat, shap_val, feat_val in feature_impacts_sorted
             ],
@@ -212,14 +217,16 @@ class SHAPExplainer:
 
         logger.info(f"Obliczanie SHAP dla {len(X_sample)} próbek...")
 
-        if self.explainer_type == 'tree':
-            shap_values = self.explainer.shap_values(X_sample)
-        else:
-            shap_values = self.explainer.shap_values(X_sample)
+        shap_values = self.explainer.shap_values(X_sample)
 
         # Dla klasyfikacji binarnej
         if isinstance(shap_values, list):
+            # Stary format SHAP (<0.50): list of arrays per class
             shap_vals = np.array(shap_values[1])
+            base_value = self.explainer.expected_value[1]
+        elif np.asarray(shap_values).ndim == 3:
+            # Nowy format SHAP (>=0.50): 3D array (n_samples, n_features, n_classes)
+            shap_vals = np.asarray(shap_values)[:, :, 1]
             base_value = self.explainer.expected_value[1]
         else:
             shap_vals = np.array(shap_values)
@@ -313,8 +320,6 @@ class SHAPExplainer:
             feature_names=self.feature_names
         )
 
-        fig, ax = plt.subplots(figsize=(10, 8))
-
         shap.plots.waterfall(exp, max_display=max_display, show=False)
 
         plt.title(
@@ -329,7 +334,9 @@ class SHAPExplainer:
         if show:
             plt.show()
 
-        return plt.gcf()
+        fig = plt.gcf()
+        plt.close('all')
+        return fig
 
     def plot_beeswarm(
         self,
@@ -353,8 +360,6 @@ class SHAPExplainer:
         result = self.explain_dataset(X)
         shap_vals = result['shap_values']
 
-        fig, ax = plt.subplots(figsize=(10, 8))
-
         shap.summary_plot(
             shap_vals,
             X,
@@ -372,7 +377,9 @@ class SHAPExplainer:
         if show:
             plt.show()
 
-        return plt.gcf()
+        fig = plt.gcf()
+        plt.close('all')
+        return fig
 
     def plot_bar(
         self,

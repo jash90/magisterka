@@ -17,6 +17,54 @@ MEDICAL_METRICS = [
     'brier_score'
 ]
 
+
+# Factory functions for complex model types
+
+def _create_calibrated_svm(cv=5, method='sigmoid', **svc_params):
+    """Create CalibratedClassifierCV wrapping SVC."""
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.svm import SVC
+
+    base_svc = SVC(probability=False, **svc_params)
+    return CalibratedClassifierCV(estimator=base_svc, cv=cv, method=method)
+
+
+def _create_stacking_ensemble(cv=5, passthrough=False, n_jobs=-1, **final_params):
+    """Create StackingClassifier with RF, XGBoost, LightGBM and LR meta-learner."""
+    from sklearn.ensemble import StackingClassifier, RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from xgboost import XGBClassifier
+    from lightgbm import LGBMClassifier
+
+    estimators = [
+        ('rf', RandomForestClassifier(
+            n_estimators=100, max_depth=10,
+            class_weight='balanced', random_state=42, n_jobs=-1
+        )),
+        ('xgb', XGBClassifier(
+            n_estimators=100, learning_rate=0.1, max_depth=6,
+            scale_pos_weight=5, random_state=42,
+            eval_metric='auc',
+        )),
+        ('lgbm', LGBMClassifier(
+            n_estimators=100, learning_rate=0.1,
+            random_state=42, verbose=-1, is_unbalance=True
+        )),
+    ]
+
+    final_estimator = LogisticRegression(
+        max_iter=1000, random_state=42, **final_params
+    )
+
+    return StackingClassifier(
+        estimators=estimators,
+        final_estimator=final_estimator,
+        cv=cv,
+        passthrough=passthrough,
+        n_jobs=n_jobs
+    )
+
+
 # Konfiguracje modeli
 MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     'random_forest': {
@@ -59,7 +107,6 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             'scale_pos_weight': 5,  # Dostosować do proporcji klas
             'random_state': 42,
             'eval_metric': 'auc',
-            'use_label_encoder': False
         },
         'grid_search': {
             'n_estimators': [50, 100, 200],
@@ -161,8 +208,8 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         },
         'random_search': {
             'C': [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100],
-            'penalty': ['l1', 'l2', 'elasticnet'],
-            'solver': ['liblinear', 'saga', 'newton-cg', 'lbfgs']
+            'penalty': ['l1', 'l2'],
+            'solver': ['liblinear', 'saga']
         }
     },
 
@@ -214,18 +261,76 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             'min_samples_leaf': [1, 2, 3, 4],
             'subsample': [0.6, 0.7, 0.8, 0.9, 1.0]
         }
+    },
+
+    'naive_bayes': {
+        'class': 'sklearn.naive_bayes.GaussianNB',
+        'base_params': {
+            'var_smoothing': 1e-9
+        },
+        'grid_search': {
+            'var_smoothing': [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6]
+        },
+        'random_search': {
+            'var_smoothing': [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4]
+        }
+    },
+
+    'calibrated_svm': {
+        'factory': _create_calibrated_svm,
+        'base_params': {
+            'cv': 5,
+            'method': 'sigmoid',
+            'kernel': 'rbf',
+            'C': 1.0,
+            'gamma': 'scale',
+            'class_weight': 'balanced',
+            'random_state': 42,
+        },
+        'grid_search': {
+            'estimator__C': [0.1, 1, 10, 100],
+            'estimator__kernel': ['rbf', 'linear'],
+            'estimator__gamma': ['scale', 'auto', 0.01, 0.1],
+            'method': ['sigmoid', 'isotonic'],
+        },
+        'random_search': {
+            'estimator__C': [0.01, 0.1, 0.5, 1, 5, 10, 50, 100],
+            'estimator__kernel': ['rbf', 'linear', 'poly'],
+            'estimator__gamma': ['scale', 'auto', 0.001, 0.01, 0.1, 1],
+            'method': ['sigmoid', 'isotonic'],
+        }
+    },
+
+    'stacking_ensemble': {
+        'factory': _create_stacking_ensemble,
+        'base_params': {
+            'cv': 5,
+            'passthrough': False,
+            'n_jobs': -1,
+        },
+        'grid_search': {
+            'final_estimator__C': [0.1, 1.0, 10.0],
+            'passthrough': [True, False],
+        },
+        'random_search': {
+            'final_estimator__C': [0.01, 0.1, 0.5, 1.0, 5.0, 10.0],
+            'passthrough': [True, False],
+        }
     }
 }
 
 # Optymalna kolejność trenowania (od szybszych do wolniejszych)
 TRAINING_ORDER: List[str] = [
     'logistic_regression',
+    'naive_bayes',
     'random_forest',
     'lightgbm',
     'xgboost',
     'gradient_boosting',
     'svm',
-    'neural_network'
+    'calibrated_svm',
+    'neural_network',
+    'stacking_ensemble',
 ]
 
 # Modele kompatybilne z TreeSHAP (szybkie SHAP)
@@ -259,7 +364,13 @@ def get_model_class(model_type: str):
     if model_type not in MODEL_CONFIGS:
         raise ValueError(f"Nieznany model: {model_type}. Dostępne: {list(MODEL_CONFIGS.keys())}")
 
-    class_path = MODEL_CONFIGS[model_type]['class']
+    config = MODEL_CONFIGS[model_type]
+
+    # Factory function for complex model types (CalibratedClassifierCV, StackingClassifier)
+    if 'factory' in config:
+        return config['factory']
+
+    class_path = config['class']
     module_name, class_name = class_path.rsplit('.', 1)
 
     import importlib

@@ -1,0 +1,38 @@
+{
+  "model_type": "naive_bayes",
+  "best_params": null,
+  "feature_names": [
+    "Wiek",
+    "Plec",
+    "Wiek_rozpoznania",
+    "Opoznienie_Rozpoznia",
+    "Liczba_Zajetych_Narzadow",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Nerki",
+    "Manifestacja_Pokarmowy",
+    "Manifestacja_Zajecie_CSN",
+    "Manifestacja_Neurologiczny",
+    "Zaostrz_Wymagajace_OIT",
+    "Kreatynina",
+    "Max_CRP",
+    "Plazmaferezy",
+    "Dializa",
+    "Sterydy_Dawka_g",
+    "Czas_Sterydow",
+    "Powiklania_Serce/pluca",
+    "Powiklania_Infekcja"
+  ],
+  "training_history": [
+    {
+      "timestamp": "2026-02-19T00:17:14.909515",
+      "action": "fit",
+      "training_time": 0.000732,
+      "n_samples": 719,
+      "n_features": 19
+    }
+  ],
+  "base_params": {
+    "var_smoothing": 1e-09
+  },
+  "timestamp": "2026-02-19T00:17:14.912471"
+}

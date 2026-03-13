@@ -60,7 +60,7 @@ class DALEXWrapper:
         else:
             self.X = X
 
-        self.y = y
+        self.y = np.asarray(y, dtype=np.float64) if y is not None else y
 
         # Funkcja predykcji
         if predict_function is None:
@@ -73,7 +73,7 @@ class DALEXWrapper:
         self.explainer = dx.Explainer(
             model=model,
             data=self.X,
-            y=y,
+            y=self.y,
             label=label,
             predict_function=predict_function
         )
@@ -242,7 +242,7 @@ class DALEXWrapper:
 
     def get_variable_importance(
         self,
-        loss_function: str = 'one_minus_auc',
+        loss_function: str = '1-auc',
         B: int = 10,
         variables: Optional[List[str]] = None
     ) -> Dict[str, float]:

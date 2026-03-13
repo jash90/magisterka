@@ -33,7 +33,7 @@ class TestModelConfig:
     def test_model_config_structure(self):
         """Test struktury konfiguracji modelu."""
         for model_name, config in MODEL_CONFIGS.items():
-            assert 'class' in config, f"Brak 'class' w {model_name}"
+            assert 'class' in config or 'factory' in config, f"Brak 'class' lub 'factory' w {model_name}"
             assert 'base_params' in config, f"Brak 'base_params' w {model_name}"
             assert 'grid_search' in config, f"Brak 'grid_search' w {model_name}"
 
@@ -192,6 +192,107 @@ class TestModelEvaluator:
         assert 'auc_roc' in ci_results
         lower, mean, upper = ci_results['auc_roc']
         assert lower <= mean <= upper
+
+
+class TestDialysisSchemas:
+    """Testy jednostkowe dla schematów dializy."""
+
+    def test_dialysis_patient_input_valid(self):
+        """Test walidacji poprawnych danych pacjenta dializy."""
+        from src.api.schemas import DialysisPatientInput
+        patient = DialysisPatientInput(
+            wiek=55,
+            plec=1,
+            wiek_rozpoznania=50,
+            liczba_zajetych_narzadow=3,
+            manifestacja_nerki=1,
+            kreatynina=200.0,
+        )
+        assert patient.wiek == 55
+        assert patient.plec == 1
+        assert patient.manifestacja_nerki == 1
+
+    def test_dialysis_patient_input_defaults(self):
+        """Test domyślnych wartości pól opcjonalnych."""
+        from src.api.schemas import DialysisPatientInput
+        patient = DialysisPatientInput(wiek=40, plec=0)
+        assert patient.liczba_zajetych_narzadow == 0
+        assert patient.manifestacja_nerki == 0
+        assert patient.zaostrz_wymagajace_oit == 0
+        assert patient.plazmaferezy == 0
+        assert patient.pulsy == 0
+        assert patient.kreatynina is None
+
+    def test_dialysis_patient_input_extra_fields_ignored(self):
+        """Test że dodatkowe pola są ignorowane (extra='ignore')."""
+        from src.api.schemas import DialysisPatientInput
+        patient = DialysisPatientInput(
+            wiek=60,
+            plec=1,
+            nieistniejace_pole="wartość",  # powinno być zignorowane
+        )
+        assert patient.wiek == 60
+
+    def test_dialysis_patient_to_array_basic(self):
+        """Test konwersji danych pacjenta dializy do tablicy."""
+        from src.api.schemas import DialysisPatientInput, dialysis_patient_to_array
+        patient = DialysisPatientInput(
+            wiek=55,
+            plec=1,
+            kreatynina=180.0,
+            manifestacja_nerki=1,
+        )
+        feature_order = ['Wiek', 'Plec', 'Kreatynina', 'Manifestacja_Nerki']
+        arr = dialysis_patient_to_array(patient, feature_order)
+        assert len(arr) == 4
+        assert arr[0] == 55.0
+        assert arr[1] == 1.0
+        assert arr[2] == 180.0
+        assert arr[3] == 1.0
+
+    def test_dialysis_patient_to_array_missing_feature(self):
+        """Test konwersji gdy cecha nie istnieje — zwraca 0."""
+        from src.api.schemas import DialysisPatientInput, dialysis_patient_to_array
+        patient = DialysisPatientInput(wiek=50, plec=0)
+        arr = dialysis_patient_to_array(patient, ['Nieistniejaca_Cecha'])
+        assert arr == [0]
+
+    def test_dialysis_patient_to_array_none_becomes_zero(self):
+        """Test że None wartości stają się 0."""
+        from src.api.schemas import DialysisPatientInput, dialysis_patient_to_array
+        patient = DialysisPatientInput(wiek=50, plec=0, kreatynina=None)
+        arr = dialysis_patient_to_array(patient, ['Kreatynina'])
+        assert arr == [0]
+
+    def test_dialysis_prediction_output_has_prediction_field(self):
+        """Test że DialysisPredictionOutput ma pole prediction."""
+        from src.api.schemas import DialysisPredictionOutput, RiskLevel
+        output = DialysisPredictionOutput(
+            probability=0.7,
+            needs_dialysis=True,
+            risk_level=RiskLevel.HIGH,
+            prediction=1,
+        )
+        assert output.prediction == 1
+        assert output.needs_dialysis is True
+
+    def test_dialysis_prediction_output_default_prediction(self):
+        """Test domyślnej wartości pola prediction."""
+        from src.api.schemas import DialysisPredictionOutput, RiskLevel
+        output = DialysisPredictionOutput(
+            probability=0.3,
+            needs_dialysis=False,
+            risk_level=RiskLevel.LOW,
+        )
+        assert output.prediction == 0
+
+    def test_dialysis_patient_age_validation(self):
+        """Test walidacji wieku (ge=0, le=120)."""
+        from src.api.schemas import DialysisPatientInput
+        with pytest.raises(Exception):
+            DialysisPatientInput(wiek=-1, plec=0)
+        with pytest.raises(Exception):
+            DialysisPatientInput(wiek=121, plec=0)
 
 
 if __name__ == '__main__':

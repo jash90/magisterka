@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-Skrypt do trenowania modeli predykcji śmiertelności w zapaleniu naczyń.
+Skrypt do trenowania modeli predykcji potrzeby dializy w zapaleniu naczyń.
 
-Trenuje 5 modeli: Random Forest, Naive Bayes, Calibrated SVM, XGBoost, Stacking Ensemble.
-Tworzy model_registry.json z metrykami i domyślnym modelem (najlepszy AUC).
+Trenuje 4 modele: Logistic Regression, Random Forest, SVM, Naive Bayes.
+Tworzy dialysis_model_registry.json z metrykami i domyślnym modelem (najlepszy AUC).
+
+Target: Dializa (0/1), wartości -1 traktowane jako 0 (brak dializy).
+Dane: 900 próbek, 171 pozytywnych (19%).
 
 Użycie:
-    python scripts/train_model.py
+    python scripts/train_dialysis_model.py
 
 Wymagania:
     - Dane w data/raw/aktualne_dane.csv (separator: |)
-    - Kolumna target: Zgon (0/1)
+    - Kolumna target: Dializa (0/1/-1)
 """
 
 import sys
@@ -23,42 +26,39 @@ from datetime import datetime
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.data.preprocessing import DataPreprocessor, KLUCZOWE_CECHY
+from src.data.preprocessing import DataPreprocessor, DIALYSIS_FEATURES
 from src.models.train import ModelTrainer
 
 # Modele do wytrenowania
-MODEL_TYPES = ['random_forest', 'naive_bayes', 'calibrated_svm', 'xgboost', 'stacking_ensemble']
+MODEL_TYPES = ['logistic_regression', 'random_forest', 'xgboost', 'svm', 'naive_bayes']
 
 MODEL_DISPLAY_NAMES = {
+    'logistic_regression': 'Logistic Regression',
     'random_forest': 'Random Forest',
-    'naive_bayes': 'Naive Bayes',
-    'calibrated_svm': 'Calibrated SVM',
     'xgboost': 'XGBoost',
-    'stacking_ensemble': 'Stacking Ensemble',
+    'svm': 'SVM',
+    'naive_bayes': 'Naive Bayes',
 }
 
 
 def main():
-    """Główna funkcja trenowania modeli."""
+    """Główna funkcja trenowania modeli dializy."""
 
     print("=" * 60)
-    print("Vasculitis XAI - Trenowanie wielu modeli")
+    print("Vasculitis XAI - Trenowanie modeli predykcji dializy")
     print("=" * 60)
 
     # Ścieżki
     data_path = project_root / "data" / "raw" / "aktualne_dane.csv"
-    models_dir = project_root / "models" / "saved"
-    features_output_path = models_dir / "feature_names.json"
-    registry_path = models_dir / "model_registry.json"
+    models_dir = project_root / "models" / "saved_dialysis"
+    features_output_path = models_dir / "dialysis_feature_names.json"
+    registry_path = models_dir / "dialysis_model_registry.json"
 
     # Sprawdź czy dane istnieją
     if not data_path.exists():
         print(f"\n[BŁĄD] Nie znaleziono pliku danych: {data_path}")
         print("\nUpewnij się, że plik CSV z danymi pacjentów znajduje się w:")
         print(f"  {data_path}")
-        print("\nFormat pliku:")
-        print("  - Separator: | (pipe)")
-        print("  - Kolumna target: Zgon (0=przeżycie, 1=zgon)")
         return False
 
     print(f"\n[1/5] Ładowanie danych z: {data_path}")
@@ -74,26 +74,32 @@ def main():
         return False
 
     # Sprawdź czy kolumna target istnieje
-    if 'Zgon' not in df.columns:
-        print(f"\n[BŁĄD] Brak kolumny 'Zgon' w danych!")
+    if 'Dializa' not in df.columns:
+        print(f"\n[BŁĄD] Brak kolumny 'Dializa' w danych!")
         print(f"       Dostępne kolumny: {list(df.columns)[:10]}...")
         return False
 
-    # Filtruj do KLUCZOWE_CECHY + target (żeby model trenował na cechach dostępnych w API)
-    available_features = [f for f in KLUCZOWE_CECHY if f in df.columns]
-    missing = set(KLUCZOWE_CECHY) - set(available_features)
-    if missing:
-        print(f"      [UWAGA] Brak kolumn w danych: {missing}")
-    print(f"      Wybrano {len(available_features)} z {len(KLUCZOWE_CECHY)} KLUCZOWE_CECHY")
+    # Obsługa wartości -1 PRZED pipeline (kluczowe!)
+    print(f"      Rozkład Dializa przed obsługą: {df['Dializa'].value_counts().to_dict()}")
+    df = preprocessor.prepare_dialysis_target(df, treat_minus_one_as_zero=True)
+    print(f"      Rozkład Dializa po obsłudze: {df['Dializa'].value_counts().to_dict()}")
 
-    df_filtered = df[available_features + ['Zgon']]
+    # Filtruj do DIALYSIS_FEATURES + target
+    available_features = [f for f in DIALYSIS_FEATURES if f in df.columns]
+    missing_features = [f for f in DIALYSIS_FEATURES if f not in df.columns]
+    if missing_features:
+        print(f"      Uwaga: brak kolumn w danych: {missing_features}")
+
+    columns_to_keep = available_features + ['Dializa']
+    df = df[columns_to_keep]
+    print(f"      Wybrano {len(available_features)} cech z {len(DIALYSIS_FEATURES)} zdefiniowanych")
 
     print(f"\n[2/5] Przygotowanie pipeline'u...")
 
     try:
         X, y, feature_names = preprocessor.prepare_pipeline(
-            df_filtered,
-            target_col='Zgon',
+            df,
+            target_col='Dializa',
             n_features=len(available_features),
             scale=True,
             handle_missing=True
@@ -104,7 +110,7 @@ def main():
         print(f"\n[BŁĄD] Pipeline preprocessing: {e}")
         return False
 
-    print(f"\n[3/5] Podział danych (80/20)...")
+    print(f"\n[3/5] Podział danych (80/20, stratified)...")
 
     try:
         X_train, X_test, y_train, y_test = preprocessor.get_train_test_split(
@@ -112,6 +118,8 @@ def main():
         )
         print(f"      Zbiór treningowy: {X_train.shape[0]} próbek")
         print(f"      Zbiór testowy: {X_test.shape[0]} próbek")
+        print(f"      Klasa pozytywna (train): {int(y_train.sum())} ({y_train.mean()*100:.1f}%)")
+        print(f"      Klasa pozytywna (test): {int(y_test.sum())} ({y_test.mean()*100:.1f}%)")
     except Exception as e:
         print(f"\n[BŁĄD] Podział danych: {e}")
         return False
@@ -147,11 +155,13 @@ def main():
 
     # Rejestr modeli
     registry = {
+        "task": "dialysis_prediction",
+        "target_column": "Dializa",
         "created_at": datetime.now().isoformat(),
         "n_train_samples": int(X_train.shape[0]),
         "n_test_samples": int(X_test.shape[0]),
         "n_features": int(X_train.shape[1]),
-        "feature_names_file": "feature_names.json",
+        "feature_names_file": "dialysis_feature_names.json",
         "default_model": None,
         "models": {}
     }
@@ -218,8 +228,8 @@ def main():
         from src.xai import EBMExplainer
         ebm = EBMExplainer(feature_names=feature_names)
         ebm.fit(X_train, y_train, feature_names=feature_names)
-        ebm.save_model(str(models_dir / "ebm_model.joblib"))
-        print(f"         Zapisano: {models_dir / 'ebm_model.joblib'}")
+        ebm.save_model(str(models_dir / "dialysis_ebm_model.joblib"))
+        print(f"         Zapisano: {models_dir / 'dialysis_ebm_model.joblib'}")
     except Exception as e:
         print(f"         [OSTRZEŻENIE] EBM: {e}")
 
@@ -228,27 +238,19 @@ def main():
 
     print(f"\n[5/5] Zapisywanie rejestru i cech...")
 
-    # Zapisz feature_names.json (shared)
+    # Zapisz feature_names
     with open(features_output_path, 'w', encoding='utf-8') as f:
         json.dump(feature_names, f, ensure_ascii=False, indent=2)
     print(f"      Cechy zapisane: {features_output_path}")
 
-    # Zapisz model_registry.json
+    # Zapisz rejestr
     with open(registry_path, 'w', encoding='utf-8') as f:
         json.dump(registry, f, ensure_ascii=False, indent=2)
     print(f"      Rejestr zapisany: {registry_path}")
 
-    # Zachowaj backward compatibility - skopiuj najlepszy model jako best_model.joblib
-    if best_model_type:
-        import shutil
-        best_src = models_dir / f"{best_model_type}.joblib"
-        best_dst = models_dir / "best_model.joblib"
-        shutil.copy2(best_src, best_dst)
-        print(f"      Najlepszy model ({best_model_type}) skopiowany jako best_model.joblib")
-
     # Podsumowanie
     print("\n" + "=" * 60)
-    print("SUKCES! Modele zostały wytrenowane i zapisane.")
+    print("SUKCES! Modele dializy zostały wytrenowane i zapisane.")
     print("=" * 60)
 
     print(f"\nDomyślny model: {best_model_type} (AUC: {best_auc:.3f})")
@@ -271,8 +273,7 @@ def main():
     print(f"  - Rejestr: {registry_path}")
     print(f"  - Cechy: {features_output_path}")
 
-    print("\nMożesz teraz uruchomić API z pełnym modelem:")
-    print(f"  cd {project_root}")
+    print("\nMożesz teraz uruchomić API z modelem dializy:")
     print("  python -m src.api.main")
 
     return True

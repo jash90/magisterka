@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
-from typing import List, Dict, Any, Optional, Union, Callable
+from typing import List, Dict, Any, Optional
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -143,7 +143,7 @@ class LIMEExplainer:
             'probability_positive': float(proba[1]),
             'feature_weights': feature_weights_sorted,
             'intercept': float(exp.intercept[label]),
-            'local_prediction': float(exp.local_pred[label]),
+            'local_prediction': float(exp.local_pred[0] if len(exp.local_pred) == 1 else exp.local_pred[label]),
             'num_features': num_features,
             'num_samples': num_samples,
             'instance_values': dict(zip(self.feature_names, instance.tolist()))
@@ -323,6 +323,9 @@ class LIMEExplainer:
             return 0.0
 
         top_features = [r[0] if r else None for r in rankings]
+        top_features = [f for f in top_features if f is not None]
+        if not top_features:
+            return 0.0
         most_common = max(set(top_features), key=top_features.count)
         consistency = top_features.count(most_common) / len(top_features)
 
@@ -413,7 +416,7 @@ class LIMEExplainer:
                 {
                     'feature': feat,
                     'contribution': float(weight),
-                    'direction': 'zwiększa ryzyko' if weight > 0 else 'zmniejsza ryzyko'
+                    'direction': 'increases_risk' if weight > 0 else 'decreases_risk'
                 }
                 for feat, weight in explanation['feature_weights']
             ],

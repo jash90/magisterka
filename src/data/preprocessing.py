@@ -37,6 +37,19 @@ KLUCZOWE_CECHY = [
     'Powiklania_Infekcja'
 ]
 
+# Cechy kliniczne istotne dla predykcji potrzeby dializy
+DIALYSIS_FEATURES = [
+    'Wiek', 'Plec', 'Wiek_rozpoznania',
+    'Manifestacja_Nerki', 'Manifestacja_Sercowo-Naczyniowy',
+    'Manifestacja_Oddechowy', 'Manifestacja_Neurologiczny',
+    'Liczba_Zajetych_Narzadow',
+    'Zaostrz_Wymagajace_OIT', 'Zaostrz_Wymagajace_Hospital',
+    'Kreatynina', 'Max_CRP',
+    'Plazmaferezy', 'Pulsy',
+    'Sterydy_Dawka_g', 'Czas_Sterydow',
+    'Powiklania_Serce/pluca', 'Powiklania_Infekcja',
+]
+
 
 class DataPreprocessor:
     """
@@ -58,6 +71,41 @@ class DataPreprocessor:
         self.imputer: Optional[SimpleImputer] = None
         self.feature_names: Optional[List[str]] = None
         self._is_fitted: bool = False
+
+    def prepare_dialysis_target(self, df: pd.DataFrame, treat_minus_one_as_zero: bool = True) -> pd.DataFrame:
+        """
+        Przygotuj kolumnę Dializa jako target (obsłuż wartości -1).
+
+        WAŻNE: Wywołaj PRZED prepare_pipeline(), bo handle_missing_values()
+        zamieni -1 na NaN i zastąpi medianą, co zepsuje target.
+
+        Args:
+            df: DataFrame z kolumną 'Dializa'
+            treat_minus_one_as_zero: Czy traktować -1 jako 0 (brak dializy).
+                True = 900 próbek (171 pos, 729 neg).
+                False = usuwa wiersze z -1 (192 próbki).
+
+        Returns:
+            DataFrame z poprawioną kolumną Dializa
+        """
+        df = df.copy()
+        if 'Dializa' not in df.columns:
+            raise ValueError("Brak kolumny 'Dializa' w danych")
+
+        if treat_minus_one_as_zero:
+            original_minus_one = (df['Dializa'] == -1).sum()
+            # Binaryzacja: -1 i 0 → 0, wartości > 0 (1, 2, ...) → 1
+            df['Dializa'] = df['Dializa'].apply(lambda x: 0 if x <= 0 else 1)
+            logger.info(f"Dializa: binaryzacja (-1/0→0, >0→1), zamieniono {original_minus_one} wartości -1")
+        else:
+            removed = (df['Dializa'] == -1).sum()
+            df = df[df['Dializa'] != -1]
+            # Binaryzacja wartości > 0
+            df['Dializa'] = df['Dializa'].apply(lambda x: 1 if x > 0 else 0)
+            logger.info(f"Dializa: usunięto {removed} wierszy z -1, binaryzacja >0→1")
+
+        logger.info(f"Rozkład Dializa: {df['Dializa'].value_counts().to_dict()}")
+        return df
 
     def load_data(self, filepath: str, separator: str = '|') -> pd.DataFrame:
         """

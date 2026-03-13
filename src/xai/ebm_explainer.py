@@ -9,7 +9,7 @@ from interpret import show
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional
 import json
 import joblib
 import logging
@@ -227,7 +227,7 @@ class EBMExplainer:
                     'feature': name,
                     'score': float(score),
                     'value': value,
-                    'direction': 'zwiększa ryzyko' if score > 0 else 'zmniejsza ryzyko'
+                    'direction': 'increases_risk' if score > 0 else 'decreases_risk'
                 })
 
         # Posortuj wg bezwzględnej wartości

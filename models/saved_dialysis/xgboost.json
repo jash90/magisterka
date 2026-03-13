@@ -1,0 +1,46 @@
+{
+  "model_type": "xgboost",
+  "best_params": null,
+  "feature_names": [
+    "Wiek",
+    "Plec",
+    "Wiek_rozpoznania",
+    "Manifestacja_Nerki",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Oddechowy",
+    "Manifestacja_Neurologiczny",
+    "Liczba_Zajetych_Narzadow",
+    "Zaostrz_Wymagajace_OIT",
+    "Zaostrz_Wymagajace_Hospital",
+    "Kreatynina",
+    "Max_CRP",
+    "Plazmaferezy",
+    "Pulsy",
+    "Sterydy_Dawka_g",
+    "Czas_Sterydow",
+    "Powiklania_Serce/pluca",
+    "Powiklania_Infekcja"
+  ],
+  "training_history": [
+    {
+      "timestamp": "2026-03-03T15:09:15.845502",
+      "action": "fit",
+      "training_time": 0.207515,
+      "n_samples": 719,
+      "n_features": 18
+    }
+  ],
+  "base_params": {
+    "n_estimators": 100,
+    "learning_rate": 0.1,
+    "max_depth": 6,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "scale_pos_weight": 5,
+    "random_state": 42,
+    "eval_metric": "auc"
+  },
+  "timestamp": "2026-03-03T15:09:15.851689"
+}
