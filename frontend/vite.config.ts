@@ -12,6 +12,8 @@ export default defineConfig({
       '/config': 'http://localhost:8000',
       '/model': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/agent': 'http://localhost:8000',
+      '/agent/chat': 'http://localhost:8000',
     },
   },
 })
