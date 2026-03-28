@@ -1,0 +1,44 @@
+{
+  "model_type": "random_forest",
+  "best_params": null,
+  "feature_names": [
+    "Wiek_rozpoznania",
+    "Opoznienie_Rozpoznia",
+    "Manifestacja_Miesno-Szkiel",
+    "Manifestacja_Skora",
+    "Manifestacja_Wzrok",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Pokarmowy",
+    "Manifestacja_Nerki",
+    "Manifestacja_Moczowo-Plciowy",
+    "Manifestacja_Zajecie_CSN",
+    "Manifestacja_Neurologiczny",
+    "Liczba_Zajetych_Narzadow",
+    "Zaostrz_Wymagajace_Hospital",
+    "Zaostrz_Wymagajace_OIT",
+    "Kreatynina",
+    "Pulsy",
+    "Czas_Sterydow",
+    "Plazmaferezy",
+    "Eozynofilia_Krwi_Obwodowej_Wartosc",
+    "Biopsja_Wynik"
+  ],
+  "training_history": [
+    {
+      "timestamp": "2026-04-21T23:56:05.298754",
+      "action": "fit",
+      "training_time": 0.171544,
+      "n_samples": 719,
+      "n_features": 20
+    }
+  ],
+  "base_params": {
+    "n_estimators": 200,
+    "max_depth": 10,
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "class_weight": "balanced",
+    "random_state": 42
+  },
+  "timestamp": "2026-04-21T23:56:05.298769"
+}
