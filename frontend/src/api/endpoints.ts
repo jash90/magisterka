@@ -6,6 +6,8 @@ import type {
   SHAPExplanation,
   LIMEExplanation,
   ComparisonResult,
+  DALEXExplanation,
+  EBMExplanation,
   ChatRequest,
   ChatResponse,
   BatchPatientInput,
@@ -45,6 +47,16 @@ export async function explainLime(req: ExplanationRequest): Promise<LIMEExplanat
 
 export async function explainComparison(req: ExplanationRequest): Promise<ComparisonResult> {
   const { data } = await apiClient.post<ComparisonResult>('/explain/comparison', req);
+  return data;
+}
+
+export async function explainDalex(req: ExplanationRequest): Promise<DALEXExplanation> {
+  const { data } = await apiClient.post<DALEXExplanation>('/explain/dalex', req);
+  return data;
+}
+
+export async function explainEbm(req: ExplanationRequest): Promise<EBMExplanation> {
+  const { data } = await apiClient.post<EBMExplanation>('/explain/ebm', req);
   return data;
 }
 

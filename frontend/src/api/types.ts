@@ -83,6 +83,25 @@ export interface ComparisonResult {
   spearman_correlations: Record<string, number>;
 }
 
+export interface DALEXExplanation {
+  method: 'DALEX';
+  intercept: number;
+  prediction: number;
+  risk_factors: { feature: string; contribution: number }[];
+  protective_factors: { feature: string; contribution: number }[];
+  variable_importance?: Record<string, number>;
+}
+
+export interface EBMExplanation {
+  method: 'EBM';
+  prediction: number;
+  probability: number;
+  risk_level: RiskLevel;
+  global_importance: Record<string, number>;
+  local_contributions: { feature: string; contribution: number }[];
+  interactions: string[];
+}
+
 export interface ChatRequest {
   message: string;
   patient: PatientInput;

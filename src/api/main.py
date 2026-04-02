@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 import numpy as np
+import pandas as pd
 import json
 import logging
 import joblib
@@ -39,6 +40,8 @@ from .schemas import (
     AgentConversationRequest, AgentConversationResponse,
     # Multi-model schemas
     MultiModelPredictionOutput, ModelPrediction,
+    # DALEX/EBM schemas
+    DALEXExplanation, EBMExplanation,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -893,6 +896,164 @@ async def explain_comparison(request: ExplanationRequest):
 
     except Exception as e:
         logger.error(f"Błąd comparison: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# DALEX EXPLANATION
+# ============================================================================
+
+@app.post("/explain/dalex", response_model=DALEXExplanation, tags=["XAI"])
+async def explain_dalex(request: ExplanationRequest):
+    """
+    Wyjaśnienie DALEX Break Down + Permutation Importance.
+
+    Zwraca break-down analysis (lokalne wyjaśnienie) oraz globalną ważność cech
+    za pomocą permutacji.
+    """
+    if not app_state.is_loaded:
+        raise HTTPException(status_code=503, detail="Model nie jest wczytany")
+
+    try:
+        from src.xai.dalex_wrapper import DALEXWrapper
+
+        features = patient_to_array(request.patient, app_state.feature_names)
+        X = np.array(features).reshape(1, -1)
+
+        # Background data for explainer
+        X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+        y_bg = joblib.load(Path("models/saved/y_background.joblib"))
+
+        wrapper = DALEXWrapper(
+            model=app_state.model,
+            X=X_bg,
+            y=y_bg,
+            feature_names=app_state.feature_names,
+            label="XGBoost"
+        )
+
+        # Break-down for this patient
+        bd = wrapper.explain_instance_break_down(X[0])
+
+        # Variable importance (global)
+        try:
+            vi = wrapper.get_variable_importance(B=5)
+        except Exception:
+            vi = None
+
+        risk_factors = [
+            {"feature": c["variable"], "contribution": c["contribution"]}
+            for c in bd.get("risk_factors", [])
+        ]
+        protective_factors = [
+            {"feature": c["variable"], "contribution": c["contribution"]}
+            for c in bd.get("protective_factors", [])
+        ]
+
+        return DALEXExplanation(
+            intercept=bd["intercept"],
+            prediction=bd["prediction"],
+            risk_factors=risk_factors,
+            protective_factors=protective_factors,
+            variable_importance=vi,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Błąd DALEX: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# EBM EXPLANATION
+# ============================================================================
+
+# EBM is trained once on startup (lazy init)
+_ebm_model = None
+_ebm_lock = False
+
+
+def _ensure_ebm():
+    """Train EBM model on the training data (lazy, once)."""
+    global _ebm_model, _ebm_lock
+    if _ebm_model is not None:
+        return _ebm_model
+    if _ebm_lock:
+        return None
+
+    _ebm_lock = True
+    try:
+        from src.xai.ebm_explainer import EBMExplainer
+
+        X_train = joblib.load(Path("models/saved/X_train.joblib"))
+        y_train = joblib.load(Path("models/saved/y_train.joblib"))
+        with open("models/saved/feature_names.json") as f:
+            feature_names = json.load(f)
+
+        ebm = EBMExplainer(
+            feature_names=feature_names,
+            max_rounds=5000,
+            interactions=10,
+            random_state=42,
+        )
+        X_df = pd.DataFrame(X_train, columns=feature_names)
+        ebm.fit(X_df, y_train, feature_names=feature_names)
+        _ebm_model = ebm
+        logger.info("EBM model wytrenowany")
+        return ebm
+    except Exception as e:
+        logger.warning(f"Nie udało się wytrenować EBM: {e}")
+        return None
+    finally:
+        _ebm_lock = False
+
+
+@app.post("/explain/ebm", response_model=EBMExplanation, tags=["XAI"])
+async def explain_ebm(request: ExplanationRequest):
+    """
+    Wyjaśnienie EBM (Explainable Boosting Machine).
+
+    Zwraca lokalne wyjaśnienie + globalną ważność cech z inherentnie
+    interpretowalnego modelu GAM.
+    """
+    try:
+        ebm = _ensure_ebm()
+        if ebm is None:
+            raise HTTPException(status_code=503, detail="Model EBM niedostępny")
+
+        features = patient_to_array(request.patient, app_state.feature_names)
+        X = np.array(features).reshape(1, -1)
+
+        # Local explanation
+        local = ebm.explain_local(X[0])
+
+        # Global importance
+        global_imp = ebm.get_feature_importance()
+
+        prob = local["probability_positive"]
+        pred = local["prediction"]
+
+        contributions = [
+            {"feature": c["feature"], "contribution": c["score"]}
+            for c in local.get("contributions", [])
+        ]
+
+        # Get top interactions
+        global_data = ebm.explain_global()
+        interactions = global_data.get("interactions_detected", [])
+
+        return EBMExplanation(
+            prediction=pred,
+            probability=prob,
+            risk_level=get_risk_level_from_probability(prob),
+            global_importance=global_imp,
+            local_contributions=contributions,
+            interactions=interactions[:10],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Błąd EBM: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ShapTab } from './ShapTab';
 import { LimeTab } from './LimeTab';
 import { ComparisonTab } from './ComparisonTab';
+import { DalexTab } from './DalexTab';
+import { EbmTab } from './EbmTab';
 import { ChatTab } from './ChatTab';
 import { pl } from '../../i18n/pl';
 import type { PatientInput, PredictionOutput } from '../../api/types';
@@ -16,6 +18,8 @@ interface XaiTabsProps {
 const TABS = [
   { id: 'shap', label: pl.xai.shap },
   { id: 'lime', label: pl.xai.lime },
+  { id: 'dalex', label: 'DALEX' },
+  { id: 'ebm', label: 'EBM' },
   { id: 'comparison', label: pl.xai.comparison },
 ] as const;
 
@@ -26,7 +30,7 @@ export function XaiTabs({ patient, prediction: _prediction, factors }: XaiTabsPr
 
   return (
     <div className="space-y-10">
-      {/* SHAP / LIME / Comparison tabs */}
+      {/* XAI method tabs */}
       <div>
         <div className="flex border-b border-gray-700">
           {TABS.map((tab) => (
@@ -47,6 +51,8 @@ export function XaiTabs({ patient, prediction: _prediction, factors }: XaiTabsPr
         <div className="mt-4">
           {activeTab === 'shap' && <ShapTab patient={patient} factors={factors} />}
           {activeTab === 'lime' && <LimeTab patient={patient} factors={factors} />}
+          {activeTab === 'dalex' && <DalexTab patient={patient} factors={factors} />}
+          {activeTab === 'ebm' && <EbmTab patient={patient} factors={factors} />}
           {activeTab === 'comparison' && <ComparisonTab patient={patient} factors={factors} />}
         </div>
       </div>
