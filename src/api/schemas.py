@@ -104,6 +104,7 @@ class ExplanationRequest(BaseModel):
     patient: PatientInput
     method: XAIMethod = Field(XAIMethod.SHAP, description="Metoda XAI")
     num_features: int = Field(10, ge=1, le=50, description="Liczba cech do wyświetlenia")
+    model_key: Optional[str] = Field("xgboost", description="Model: xgboost, random_forest, lightgbm")
 
 
 class PatientExplanationRequest(BaseModel):

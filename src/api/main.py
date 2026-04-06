@@ -210,6 +210,24 @@ class AppState:
 app_state = AppState()
 
 
+def _load_model_by_key(model_key: str):
+    """Załaduj model z dysku na podstawie klucza (xgboost/random_forest/lightgbm)."""
+    if model_key == "xgboost" or model_key is None:
+        if app_state.model is None:
+            raise HTTPException(status_code=503, detail="Model nie jest wczytany")
+        return app_state.model
+    filename = _MODEL_FILES.get(model_key)
+    if filename is None:
+        raise HTTPException(status_code=400, detail=f"Nieznany model: {model_key}. Dostępne: xgboost, random_forest, lightgbm")
+    model_path = Path("models/saved") / filename
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail=f"Model {model_key} nie istnieje: {model_path}")
+    try:
+        return joblib.load(model_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd wczytywania modelu {model_key}: {e}")
+
+
 # ============================================================================
 # STARTUP/SHUTDOWN
 # ============================================================================
@@ -678,78 +696,61 @@ async def explain_shap(request: ExplanationRequest):
     """
     Wygeneruj wyjaśnienie SHAP.
 
-    Zwraca wartości SHAP dla cech pacjenta.
+    Zwraca wartości SHAP dla cech pacjenta. Obsługuje XGBoost, Random Forest i LightGBM
+    (parametr model_key).
     """
     try:
+        model = _load_model_by_key(request.model_key)
+        model_label = _MODEL_LABELS.get(request.model_key or "xgboost", "XGBoost")
+
         prediction = await predict(request.patient)
+        features = patient_to_array(request.patient, app_state.feature_names)
+        instance = np.array(features)
 
-        # Użyj prawdziwego SHAP explainera jeśli dostępny
-        if app_state.shap_explainer is not None:
-            features = patient_to_array(request.patient, app_state.feature_names)
-            instance = np.array(features)
+        # Użyj preinit SHAP explainer dla XGBoost, stwórz nowy dla innych modeli
+        if (request.model_key in ("xgboost", None)) and app_state.shap_explainer is not None:
             real_exp = app_state.shap_explainer.explain_instance(instance)
-
-            shap_values = {}
-            contributions = []
-            risk_factors = []
-            protective_factors = []
-
-            for fi in real_exp['feature_impacts'][:request.num_features]:
-                shap_values[fi['feature']] = fi['shap_value']
-                direction = "increases_risk" if fi['shap_value'] > 0 else "decreases_risk"
-                entry = {
-                    "feature": fi['feature'],
-                    "value": fi['feature_value'],
-                    "contribution": fi['shap_value'],
-                    "direction": direction
-                }
-                contributions.append(entry)
-                if fi['shap_value'] > 0:
-                    risk_factors.append(entry)
-                elif fi['shap_value'] < 0:
-                    protective_factors.append(entry)
-
-            return SHAPExplanation(
-                base_value=real_exp['base_value'],
-                shap_values=shap_values,
-                feature_contributions=contributions,
-                risk_factors=risk_factors,
-                protective_factors=protective_factors,
-                prediction=prediction
+        else:
+            from src.xai.shap_explainer import SHAPExplainer
+            X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+            explainer = SHAPExplainer(
+                model=model,
+                X_background=X_bg,
+                feature_names=app_state.feature_names,
             )
+            real_exp = explainer.explain_instance(instance)
 
-        # Fallback do demo
-        demo_exp = get_demo_explanation(request.patient)
         shap_values = {}
         contributions = []
+        risk_factors = []
+        protective_factors = []
 
-        for rf in demo_exp["risk_factors"]:
-            shap_values[rf["feature"]] = rf["contribution"]
-            contributions.append({
-                "feature": rf["feature"],
-                "value": rf["value"],
-                "contribution": rf["contribution"],
-                "direction": rf["direction"]
-            })
-
-        for pf in demo_exp["protective_factors"]:
-            shap_values[pf["feature"]] = pf["contribution"]
-            contributions.append({
-                "feature": pf["feature"],
-                "value": pf["value"],
-                "contribution": pf["contribution"],
-                "direction": pf["direction"]
-            })
+        for fi in real_exp['feature_impacts'][:request.num_features]:
+            shap_values[fi['feature']] = fi['shap_value']
+            direction = "increases_risk" if fi['shap_value'] > 0 else "decreases_risk"
+            entry = {
+                "feature": fi['feature'],
+                "value": fi['feature_value'],
+                "contribution": fi['shap_value'],
+                "direction": direction
+            }
+            contributions.append(entry)
+            if fi['shap_value'] > 0:
+                risk_factors.append(entry)
+            elif fi['shap_value'] < 0:
+                protective_factors.append(entry)
 
         return SHAPExplanation(
-            base_value=demo_exp["base_value"],
+            base_value=real_exp['base_value'],
             shap_values=shap_values,
             feature_contributions=contributions,
-            risk_factors=demo_exp["risk_factors"],
-            protective_factors=demo_exp["protective_factors"],
+            risk_factors=risk_factors,
+            protective_factors=protective_factors,
             prediction=prediction
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Błąd SHAP: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -760,73 +761,55 @@ async def explain_lime(request: ExplanationRequest):
     """
     Wygeneruj wyjaśnienie LIME.
 
-    Zwraca wagi cech z lokalnego modelu zastępczego.
+    Zwraca wagi cech z lokalnego modelu zastępczego. Obsługuje XGBoost, Random Forest i LightGBM.
     """
     try:
+        model = _load_model_by_key(request.model_key)
         prediction = await predict(request.patient)
 
-        # Użyj prawdziwego LIME explainera jeśli dostępny
-        if app_state.lime_explainer is not None:
-            features = patient_to_array(request.patient, app_state.feature_names)
-            instance = np.array(features)
-            real_exp = app_state.lime_explainer.explain_instance(
-                instance, num_features=request.num_features
+        # Użyj preinit LIME explainer dla XGBoost, stwórz nowy dla innych modeli
+        if (request.model_key in ("xgboost", None)) and app_state.lime_explainer is not None:
+            lime_exp = app_state.lime_explainer
+        else:
+            from src.xai.lime_explainer import LIMEExplainer
+            X_train = joblib.load(Path("models/saved/X_train.joblib"))
+            lime_exp = LIMEExplainer(
+                model=model,
+                X_train=X_train,
+                feature_names=app_state.feature_names,
             )
 
-            feature_weights = []
-            risk_factors = []
-            protective_factors = []
-
-            for feat_desc, weight in real_exp['feature_weights'][:request.num_features]:
-                feature_weights.append({
-                    "feature": feat_desc,
-                    "weight": weight,
-                    "condition": feat_desc
-                })
-                entry = {"feature": feat_desc, "weight": weight}
-                if weight > 0:
-                    risk_factors.append(entry)
-                else:
-                    protective_factors.append(entry)
-
-            return LIMEExplanation(
-                intercept=real_exp['intercept'],
-                feature_weights=feature_weights,
-                risk_factors=risk_factors,
-                protective_factors=protective_factors,
-                local_prediction=real_exp['local_prediction'],
-                prediction=prediction
-            )
-
-        # Fallback do demo
-        demo_exp = get_demo_explanation(request.patient)
+        features = patient_to_array(request.patient, app_state.feature_names)
+        instance = np.array(features)
+        real_exp = lime_exp.explain_instance(instance, num_features=request.num_features)
 
         feature_weights = []
-        for rf in demo_exp["risk_factors"]:
-            feature_weights.append({
-                "feature": rf["feature"],
-                "weight": rf["contribution"],
-                "condition": f"{rf['feature']} = {rf['value']}"
-            })
+        risk_factors = []
+        protective_factors = []
 
-        for pf in demo_exp["protective_factors"]:
+        for feat_desc, weight in real_exp['feature_weights'][:request.num_features]:
             feature_weights.append({
-                "feature": pf["feature"],
-                "weight": pf["contribution"],
-                "condition": f"{pf['feature']} = {pf['value']}"
+                "feature": feat_desc,
+                "weight": weight,
+                "condition": feat_desc
             })
+            entry = {"feature": feat_desc, "weight": weight}
+            if weight > 0:
+                risk_factors.append(entry)
+            else:
+                protective_factors.append(entry)
 
         return LIMEExplanation(
-            intercept=demo_exp["base_value"],
+            intercept=real_exp['intercept'],
             feature_weights=feature_weights,
-            risk_factors=[{"feature": rf["feature"], "weight": rf["contribution"]}
-                         for rf in demo_exp["risk_factors"]],
-            protective_factors=[{"feature": pf["feature"], "weight": pf["contribution"]}
-                               for pf in demo_exp["protective_factors"]],
-            local_prediction=prediction.probability,
+            risk_factors=risk_factors,
+            protective_factors=protective_factors,
+            local_prediction=real_exp['local_prediction'],
             prediction=prediction
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Błąd LIME: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -838,8 +821,10 @@ async def explain_comparison(request: ExplanationRequest):
     Porównaj wyjaśnienia SHAP i LIME dla pacjenta.
 
     Zwraca rankingi cech z obu metod oraz miary zgodności.
+    Obsługuje XGBoost, Random Forest i LightGBM.
     """
     try:
+        model = _load_model_by_key(request.model_key)
         features = patient_to_array(request.patient, app_state.feature_names)
         instance = np.array(features)
         num_features = request.num_features
@@ -848,26 +833,29 @@ async def explain_comparison(request: ExplanationRequest):
         lime_ranking: List[str] = []
 
         # SHAP ranking
-        if app_state.shap_explainer is not None:
+        if (request.model_key in ("xgboost", None)) and app_state.shap_explainer is not None:
             shap_exp = app_state.shap_explainer.explain_instance(instance)
-            shap_ranking = [
-                fi['feature'] for fi in shap_exp['feature_impacts'][:num_features]
-            ]
         else:
-            demo_exp = get_demo_explanation(request.patient)
-            shap_ranking = [f["feature"] for f in demo_exp["risk_factors"] + demo_exp["protective_factors"]]
+            from src.xai.shap_explainer import SHAPExplainer
+            X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+            shap_expl = SHAPExplainer(model=model, X_background=X_bg, feature_names=app_state.feature_names)
+            shap_exp = shap_expl.explain_instance(instance)
+        shap_ranking = [fi['feature'] for fi in shap_exp['feature_impacts'][:num_features]]
 
         # LIME ranking
-        if app_state.lime_explainer is not None:
-            lime_exp = app_state.lime_explainer.explain_instance(instance, num_features=num_features)
-            for feat_desc, _ in lime_exp['feature_weights'][:num_features]:
-                for fn in app_state.feature_names:
-                    if fn in feat_desc:
-                        if fn not in lime_ranking:
-                            lime_ranking.append(fn)
-                        break
+        if (request.model_key in ("xgboost", None)) and app_state.lime_explainer is not None:
+            lime_exp_obj = app_state.lime_explainer
         else:
-            lime_ranking = list(shap_ranking)
+            from src.xai.lime_explainer import LIMEExplainer
+            X_train = joblib.load(Path("models/saved/X_train.joblib"))
+            lime_exp_obj = LIMEExplainer(model=model, X_train=X_train, feature_names=app_state.feature_names)
+        lime_result = lime_exp_obj.explain_instance(instance, num_features=num_features)
+        for feat_desc, _ in lime_result['feature_weights'][:num_features]:
+            for fn in app_state.feature_names:
+                if fn in feat_desc:
+                    if fn not in lime_ranking:
+                        lime_ranking.append(fn)
+                    break
 
         # Oblicz zgodność
         shap_set = set(shap_ranking[:num_features])
@@ -909,12 +897,12 @@ async def explain_dalex(request: ExplanationRequest):
     Wyjaśnienie DALEX Break Down + Permutation Importance.
 
     Zwraca break-down analysis (lokalne wyjaśnienie) oraz globalną ważność cech
-    za pomocą permutacji.
+    za pomocą permutacji. Obsługuje XGBoost, Random Forest i LightGBM.
     """
-    if not app_state.is_loaded:
-        raise HTTPException(status_code=503, detail="Model nie jest wczytany")
-
     try:
+        model = _load_model_by_key(request.model_key)
+        model_label = _MODEL_LABELS.get(request.model_key or "xgboost", "XGBoost")
+
         from src.xai.dalex_wrapper import DALEXWrapper
 
         features = patient_to_array(request.patient, app_state.feature_names)
@@ -925,11 +913,11 @@ async def explain_dalex(request: ExplanationRequest):
         y_bg = joblib.load(Path("models/saved/y_background.joblib"))
 
         wrapper = DALEXWrapper(
-            model=app_state.model,
+            model=model,
             X=X_bg,
             y=y_bg,
             feature_names=app_state.feature_names,
-            label="XGBoost"
+            label=model_label
         )
 
         # Break-down for this patient

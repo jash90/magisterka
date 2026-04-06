@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useExplainLime } from '../../hooks/useApi';
 import { HorizontalBarChart } from '../charts/HorizontalBarChart';
+import { ModelSelector } from './ModelSelector';
 import { pl } from '../../i18n/pl';
 import type { PatientInput } from '../../api/types';
 import type { DemoFactor } from '../../lib/demo';
@@ -39,11 +40,12 @@ function label(feature: string): string {
 
 export function LimeTab({ patient, factors }: LimeTabProps) {
   const mutation = useExplainLime();
+  const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'lime', num_features: 10 });
+    mutation.mutate({ patient, method: 'lime', num_features: 10, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patient]);
+  }, [patient, modelKey]);
 
   const chartFactors = mutation.data
     ? [...(mutation.data.risk_factors ?? []), ...(mutation.data.protective_factors ?? [])].map((f) => ({
@@ -57,6 +59,8 @@ export function LimeTab({ patient, factors }: LimeTabProps) {
       <h3 className="mb-2 text-lg font-semibold text-gray-200">{pl.xai.limeTitle}</h3>
       <p className="mb-4 text-sm text-gray-400">{pl.xai.limeDesc}</p>
 
+      <ModelSelector value={modelKey} onChange={setModelKey} />
+
       {mutation.isPending && (
         <div className="flex h-64 items-center justify-center text-gray-400">Ładowanie wyjaśnienia LIME...</div>
       )}
@@ -64,7 +68,7 @@ export function LimeTab({ patient, factors }: LimeTabProps) {
       <HorizontalBarChart factors={chartFactors} title="Ważność czynników (LIME)" />
 
       {mutation.isError && (
-        <p className="mt-2 text-xs text-yellow-400">Użyto danych demo (API LIME niedostępne)</p>
+        <p className="mt-2 text-xs text-yellow-400">Błąd wyjaśnienia LIME</p>
       )}
     </div>
   );
