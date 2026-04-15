@@ -15,7 +15,7 @@ export function EbmTab({ patient, factors }: EbmTabProps) {
   const mutation = useExplainEbm();
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'ebm', num_features: 10 });
+    mutation.mutate({ patient, method: 'ebm', num_features: 20 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient]);
 
