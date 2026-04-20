@@ -14,7 +14,7 @@ An explainable artificial intelligence (XAI) system for predicting mortality ris
 - [API Reference](#api-reference)
 - [XAI Methods](#xai-methods)
 - [Conversational Agent](#conversational-agent)
-- [Dashboard](#dashboard)
+- [Frontend](#frontend)
 - [Testing](#testing)
 - [Docker Deployment](#docker-deployment)
 - [Clinical Metrics](#clinical-metrics)
@@ -38,13 +38,13 @@ The system addresses the challenge of making machine learning predictions in hea
 - **Batch processing** - vectorized predictions for up to 10,000+ patients per request
 - **Safety guardrails** - detection of suicidal content, blocking of medical diagnoses and medication recommendations, mandatory medical disclaimers
 - **Demo mode** - the system works without a trained model using heuristic predictions, allowing UI and workflow evaluation
-- **Interactive dashboard** - Streamlit-based interface for single-patient analysis and batch file processing
+- **React frontend** - browser interface for single-patient analysis, batch file processing, XAI views, and agent chat
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    INTERFACE (Streamlit Dashboard)                    │
+│                         INTERFACE (React Frontend)                    │
 │              Single patient analysis + Batch file upload              │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │
@@ -160,15 +160,17 @@ Once running:
 - Alternative docs (ReDoc): http://localhost:8000/redoc
 - Health check: http://localhost:8000/health
 
-### Dashboard (Streamlit)
+### React Frontend
 
-The dashboard requires the API to be running (it communicates with `http://localhost:8000`). If the API is unavailable, the dashboard falls back to its own built-in demo mode.
+The React frontend requires the API to be running. Vite proxies API calls to `http://localhost:8000`.
 
 ```bash
-streamlit run dashboard/streamlit_app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-The dashboard will be available at: http://localhost:8501
+The frontend will be available at: http://localhost:5173
 
 ### Running Both Together
 
@@ -179,9 +181,9 @@ Open two terminals:
 conda activate vasculitis-xai
 uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
-# Terminal 2 - Dashboard
-conda activate vasculitis-xai
-streamlit run dashboard/streamlit_app.py
+# Terminal 2 - Frontend
+cd frontend
+npm run dev
 ```
 
 ### Using Python Code Directly
@@ -232,8 +234,12 @@ vasculitis-xai/
 │   └── api/                         # REST API
 │       ├── main.py                  # FastAPI application with all endpoints
 │       └── schemas.py               # Pydantic models for requests and responses
-├── dashboard/
-│   └── streamlit_app.py             # Streamlit dashboard (single + batch analysis)
+├── frontend/                        # React + TypeScript + Vite frontend
+│   ├── src/
+│   │   ├── components/              # UI components for patient, batch, charts, and XAI views
+│   │   ├── hooks/                   # React Query and form hooks
+│   │   └── api/                     # API client and endpoint wrappers
+│   └── vite.config.ts               # Vite config with API proxy
 ├── tests/                           # Unit tests (pytest)
 │   ├── test_preprocessing.py        # Data preprocessing tests
 │   ├── test_models.py               # Model training and evaluation tests
@@ -252,8 +258,7 @@ vasculitis-xai/
 ├── setup.py                         # Package setup (registers vasculitis-api command)
 ├── .env.example                     # Environment variable template
 ├── Dockerfile                       # Docker image for the API
-├── Dockerfile.streamlit             # Docker image for the dashboard
-└── docker-compose.yml               # Multi-service orchestration (API + Dashboard + ChromaDB)
+└── docker-compose.yml               # Multi-service orchestration (API + ChromaDB)
 ```
 
 ## API Reference
@@ -413,12 +418,12 @@ The conversational agent uses a RAG pipeline built on LangChain and ChromaDB to 
 
 The agent includes a medical knowledge base about vasculitis (types, lab markers, treatments) that is embedded into ChromaDB and retrieved contextually during conversations.
 
-## Dashboard
+## Frontend
 
-The Streamlit dashboard provides two analysis modes:
+The React frontend provides two analysis modes:
 
 ### Single Patient Mode
-- Sidebar form for entering all 19 clinical features
+- Form for entering all 19 clinical features
 - Gauge chart showing risk probability
 - Waterfall chart (SHAP) and bar chart (LIME) of feature contributions
 - Cross-method comparison tab
@@ -457,14 +462,11 @@ pytest tests/test_api.py -v
 ```bash
 # API
 docker build -t vasculitis-api -f Dockerfile .
-
-# Dashboard
-docker build -t vasculitis-dashboard -f Dockerfile.streamlit .
 ```
 
 ### Docker Compose (all services)
 
-The `docker-compose.yml` orchestrates three services:
+The `docker-compose.yml` orchestrates the API and optional ChromaDB services:
 
 ```bash
 # Start all services in the background
@@ -480,10 +482,9 @@ docker-compose down
 | Service | Port | Description |
 |---------|------|-------------|
 | API | http://localhost:8000 | FastAPI backend |
-| Dashboard | http://localhost:8501 | Streamlit frontend |
 | ChromaDB | http://localhost:8001 | Vector database for RAG |
 
-Both the API and Dashboard containers include health checks and run as non-root users. The API container mounts `models/` and `data/` as read-only volumes.
+The API container includes a health check, runs as a non-root user, and mounts `models/` and `data/` as read-only volumes.
 
 ## Clinical Metrics
 
