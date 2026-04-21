@@ -143,7 +143,7 @@ class LIMEExplainer:
             'probability_positive': float(proba[1]),
             'feature_weights': feature_weights_sorted,
             'intercept': float(exp.intercept[label]),
-            'local_prediction': float(exp.local_pred[label]),
+            'local_prediction': float(exp.local_pred[0]),
             'num_features': num_features,
             'num_samples': num_samples,
             'instance_values': dict(zip(self.feature_names, instance.tolist()))
