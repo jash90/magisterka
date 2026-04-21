@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any, Tuple
 import numpy as np
 import json
 import logging
+import joblib
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +33,12 @@ from .schemas import (
     # Batch schemas
     BatchPatientInput, BatchPredictionOutput, BatchPatientResult,
     BatchSummary, BatchProcessingError, RiskFactorItem,
-    DemoModeStatus, DemoModeRequest
+    DemoModeStatus, DemoModeRequest,
+    # Agent schemas
+    AgentPredictionData, AgentPredictionFactor,
+    AgentConversationRequest, AgentConversationResponse,
+    # Multi-model schemas
+    MultiModelPredictionOutput, ModelPrediction,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -350,6 +356,70 @@ async def predict(patient: PatientInput):
     except Exception as e:
         logger.error(f"Błąd predykcji: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# MULTI-MODEL PREDICTION
+# ============================================================================
+
+_MODEL_FILES = {
+    "xgboost": "best_model.joblib",
+    "random_forest": "random_forest_model.joblib",
+    "lightgbm": "lightgbm_model.joblib",
+}
+
+_MODEL_LABELS = {
+    "xgboost": "XGBoost",
+    "random_forest": "Random Forest",
+    "lightgbm": "LightGBM",
+}
+
+
+@app.post("/predict/all", response_model=MultiModelPredictionOutput, tags=["Prediction"])
+async def predict_all_models(patient: PatientInput):
+    """
+    Predykcja ryzyka ze wszystkich dostępnych modeli.
+
+    Zwraca wyniki XGBoost, Random Forest i LightGBM oraz średnią ensemble.
+    """
+
+    models_dir = Path("models/saved")
+    features = patient_to_array(patient, app_state.feature_names)
+    X = np.array(features).reshape(1, -1)
+
+    results: List[ModelPrediction] = []
+    probabilities: List[float] = []
+
+    for model_key, filename in _MODEL_FILES.items():
+        model_path = models_dir / filename
+        if not model_path.exists():
+            continue
+        try:
+            model = joblib.load(model_path)
+            prob = float(model.predict_proba(X)[0, 1])
+            pred = int(prob > 0.5)
+            results.append(ModelPrediction(
+                model_name=_MODEL_LABELS[model_key],
+                probability=prob,
+                risk_level=get_risk_level_from_probability(prob),
+                prediction=pred,
+            ))
+            probabilities.append(prob)
+        except Exception as e:
+            logger.warning(f"Nie udało się wczytać modelu {model_key}: {e}")
+            continue
+
+    if not probabilities:
+        raise HTTPException(status_code=500, detail="Brak dostępnych modeli")
+
+    ensemble_prob = sum(probabilities) / len(probabilities)
+
+    return MultiModelPredictionOutput(
+        models=results,
+        ensemble_probability=ensemble_prob,
+        ensemble_risk_level=get_risk_level_from_probability(ensemble_prob),
+        primary_model="XGBoost",
+    )
 
 
 # ============================================================================
@@ -937,56 +1007,614 @@ async def get_model_info():
     )
 
 
+# ============================================================================
+# AGENT PREDICTION TOOL
+# ============================================================================
+
+async def run_prediction_tool(patient: PatientInput) -> AgentPredictionData:
+    """
+    Wykonaj predykcję z wyjaśnieniem SHAP jako narzędzie agenta.
+
+    Zwraca dane predykcji + czynniki SHAP gotowe do wyświetlenia w czacie.
+    """
+    # 1. Predykcja
+    pred = await predict(patient)
+
+    factors: List[AgentPredictionFactor] = []
+    base_value = 0.0
+
+    # 2. SHAP explanation (jeśli dostępny)
+    try:
+        if app_state.shap_explainer is not None and app_state.feature_names:
+            features = patient_to_array(patient, app_state.feature_names)
+            instance = np.array(features)
+            real_exp = app_state.shap_explainer.explain_instance(instance)
+            base_value = real_exp.get('base_value', 0.0)
+
+            for fi in real_exp['feature_impacts'][:10]:
+                direction = "increases_risk" if fi['shap_value'] > 0 else "decreases_risk"
+                factors.append(AgentPredictionFactor(
+                    feature=fi['feature'],
+                    contribution=fi['shap_value'],
+                    direction=direction,
+                ))
+        else:
+            # Fallback to demo explanation factors
+            demo_exp = get_demo_explanation(patient)
+            base_value = demo_exp.get('base_value', 0.0)
+            for rf in demo_exp["risk_factors"]:
+                factors.append(AgentPredictionFactor(
+                    feature=rf["feature"],
+                    contribution=rf["contribution"],
+                    direction=rf.get("direction", "increases_risk"),
+                ))
+            for pf in demo_exp["protective_factors"]:
+                factors.append(AgentPredictionFactor(
+                    feature=pf["feature"],
+                    contribution=pf["contribution"],
+                    direction=pf.get("direction", "decreases_risk"),
+                ))
+    except Exception as e:
+        logger.warning(f"SHAP explanation failed in agent tool: {e}")
+
+    return AgentPredictionData(
+        prediction=pred,
+        factors=factors,
+        base_value=base_value,
+    )
+
+
+@app.post("/agent/predict", response_model=AgentPredictionData, tags=["Agent"])
+async def agent_predict(patient: PatientInput):
+    """
+    Narzędzie predykcji agenta — endpoint do wywoływania przez agenta.
+
+    Wykonuje predykcję ryzyka śmiertelności i zwraca dane z wyjaśnieniem SHAP,
+    gotowe do renderowania w interfejsie czatu (wykresy, czynniki).
+    """
+    try:
+        return await run_prediction_tool(patient)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Błąd agent predict: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AGENT CONVERSATION (conversational data collection)
+# ============================================================================
+
+# Kolekcja pytań do zebrania danych pacjenta
+_COLLECTION_STEPS = [
+    {
+        "field": "wiek_rozpoznania",
+        "question": "Witaj! Jestem asystentem medycznym systemu Vasculitis XAI.\n\nPomogę Ci ocenić ryzyko śmiertelności u pacjenta z zapaleniem naczyń. Zaczniemy od kilku pytań.\n\n**Jaki jest wiek pacjenta w momencie rozpoznania choroby?** (podaj liczbę lat)",
+        "type": "number",
+        "default": 50,
+        "widget": "slider",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "unit": "lat",
+    },
+    {
+        "field": "opoznienie_rozpoznia",
+        "question": "Ile miesięcy minęło od pierwszych objawów do postawienia diagnozy?\n(Jeśli nie wiesz, wpisz 0)",
+        "type": "number",
+        "default": 0,
+        "widget": "slider",
+        "min": 0,
+        "max": 24,
+        "step": 1,
+        "unit": "mies.",
+    },
+    {
+        "field": "manifestacja_nerki",
+        "question": "Czy choroba dotknęła **nerek**? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie", "nie wiem"],
+    },
+    {
+        "field": "manifestacja_sercowo_naczyniowy",
+        "question": "Czy występują objawy ze strony **układu sercowo-naczyniowego**? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie", "nie wiem"],
+    },
+    {
+        "field": "manifestacja_zajecie_csn",
+        "question": "Czy choroba dotknęła **ośrodkowy układ nerwowy** (mózg, rdzeń)? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie", "nie wiem"],
+    },
+    {
+        "field": "manifestacja_neurologiczny",
+        "question": "Czy występują objawy **neurologiczne obwodowe** (neuropatia)? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie", "nie wiem"],
+    },
+    {
+        "field": "liczba_zajetych_narzadow",
+        "question": "Ile **narządów ogólnie** jest objętych chorobą? (podaj liczbę 1-10)",
+        "type": "number",
+        "default": 1,
+        "widget": "slider",
+        "min": 0,
+        "max": 5,
+        "step": 1,
+        "unit": "",
+    },
+    {
+        "field": "zaostrz_wymagajace_hospital",
+        "question": "Czy wystąpiły zaostrzenia wymagające **hospitalizacji**? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie"],
+    },
+    {
+        "field": "zaostrz_wymagajace_oit",
+        "question": "Czy wystąpiły zaostrzenia wymagające pobytu na **OIT** (oddział intensywnej terapii)? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie"],
+    },
+    {
+        "field": "kreatynina",
+        "question": "Jaki jest poziom **kreatyniny** (μmol/L)?\n(Norma: 60-110. Jeśli nieznane, wpisz 0)",
+        "type": "number",
+        "default": 0,
+        "widget": "slider",
+        "min": 80,
+        "max": 300,
+        "step": 1,
+        "unit": "μmol/L",
+    },
+    {
+        "field": "czas_sterydow",
+        "question": "Ile **miesięcy** pacjent jest leczony sterydami? (podaj liczbę lub 0)",
+        "type": "number",
+        "default": 0,
+        "widget": "slider",
+        "min": 0,
+        "max": 36,
+        "step": 1,
+        "unit": "mies.",
+    },
+    {
+        "field": "plazmaferezy",
+        "question": "Czy pacjentowi wykonywano **plazmaferezy** (oczyszczanie krwi)? (tak/nie)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie"],
+    },
+    {
+        "field": "biopsja_wynik",
+        "question": "Czy wynik **biopsji** był dodatni? (tak/nie/nie wiem)",
+        "type": "boolean",
+        "default": 0,
+        "widget": "buttons",
+        "options": ["tak", "nie", "nie wiem"],
+    },
+]
+
+# Domyślne wartości dla pól, które nie są zbierane przez agenta
+_DEFAULT_EXTRA_FIELDS = {
+    "manifestacja_miesno_szkiel": 0,
+    "manifestacja_skora": 0,
+    "manifestacja_wzrok": 0,
+    "manifestacja_pokarmowy": 0,
+    "manifestacja_moczowo_plciowy": 0,
+    "eozynofilia_krwi_obwodowej_wartosc": 0,
+    "pulsy": 0,
+}
+
+
+def _parse_boolean(value: str) -> int:
+    """Parsuj odpowiedź tak/nie na int 0/1."""
+    v = value.strip().lower()
+    if v in ('tak', 'yes', 't', 'y', '1'):
+        return 1
+    if v in ('nie', 'no', 'n', '0'):
+        return 0
+    if 'tak' in v:
+        return 1
+    if 'nie' in v:
+        return 0
+    return 0
+
+
+def _parse_number(value: str) -> Optional[float]:
+    """Parsuj odpowiedź liczbową."""
+    import re
+    match = re.search(r'[\d]+[.,]?[\d]*', value.replace(',', '.'))
+    if match:
+        return float(match.group().replace(',', '.'))
+    return None
+
+
+def _is_skip(value: str) -> bool:
+    """Sprawdź czy użytkownik chce pominąć pytanie."""
+    v = value.strip().lower()
+    return v in ('nie wiem', 'pomin', 'skip', 'nie znam', '-', 'n/a', 'brak')
+
+
+@app.post("/agent/chat", response_model=AgentConversationResponse, tags=["Agent"])
+async def agent_conversation(request: AgentConversationRequest):
+    """
+    Konwersacyjny agent zbierający dane pacjenta i wykonujący predykcję.
+
+    Flow:
+    1. Agent zadaje pytania jedno po drugim
+    2. Zbiera odpowiedzi i buduje profil pacjenta
+    3. Gdy wszystkie dane zebrane → wykonuje predykcję
+    4. Pokazuje wyniki z wykresami
+    5. Pozwala na dalszą dyskusję o wynikach i chorobie
+    """
+    try:
+        collected = dict(request.collected_data)
+        current_step = request.current_step
+        phase = request.phase
+        user_message = request.message.strip()
+
+        # ========================================
+        # Phase: DISCUSSION (after prediction)
+        # ========================================
+        if phase == "discussion":
+            message_lower = user_message.lower()
+
+            if any(kw in message_lower for kw in ['nowy', 'nowa', 'restart', 'jeszcze raz', 'od nowa']):
+                return AgentConversationResponse(
+                    response="Okej, zaczynamy od nowa!\n\n" + _COLLECTION_STEPS[0]["question"],
+                    collected_data={},
+                    current_step=1,
+                    phase="collecting",
+                    missing_fields=[s["field"] for s in _COLLECTION_STEPS],
+                    follow_up_suggestions=_COLLECTION_STEPS[0].get("suggestions", ["40", "55", "65", "75"]),
+                )
+
+            if any(kw in message_lower for kw in ['czynnik', 'wpływa', 'dlaczego', 'shap']):
+                patient_data = dict(collected)
+                patient_data.update(_DEFAULT_EXTRA_FIELDS)
+                pred_data = await run_prediction_tool(PatientInput(**patient_data))
+                factor_text = "Szczegółowe zestawienie czynników:\n\n"
+                sorted_f = sorted(pred_data.factors, key=lambda f: abs(f.contribution), reverse=True)
+                for i, f in enumerate(sorted_f[:8], 1):
+                    direction = "↑ zwiększa" if f.contribution > 0 else "↓ zmniejsza"
+                    factor_text += f"{i}. **{f.feature}**: {direction} ryzyko ({f.contribution:+.3f})\n"
+                factor_text += "\nCzy chcesz dowiedzieć się więcej o konkretnym czynniku?"
+                return AgentConversationResponse(
+                    response=factor_text,
+                    collected_data=collected,
+                    current_step=current_step,
+                    phase="discussion",
+                    prediction_data=pred_data,
+                    follow_up_suggestions=["Co mogę zrobić?", "Opowiedz o zapaleniu naczyń", "Nowy pacjent"],
+                )
+
+            if any(kw in message_lower for kw in ['zalec', 'co robić', 'co robic', 'pomoc', 'porad']):
+                return AgentConversationResponse(
+                    response="""Oto moje zalecenia:
+
+1. **Regularne konsultacje** z lekarzem prowadzącym
+2. **Przestrzeganie zaleceń** dotyczących leczenia
+3. **Zgłaszanie objawów** — informuj lekarza o zmianach
+4. **Badania kontrolne** — regularnie wykonuj zalecone badania
+
+Pamiętaj, że ostateczne decyzje dotyczące leczenia podejmuje lekarz prowadzący.
+
+Czy masz jeszcze pytania?""",
+                    collected_data=collected,
+                    current_step=current_step,
+                    phase="discussion",
+                    follow_up_suggestions=["Jakie czynniki wpływają na wynik?", "Opowiedz o zapaleniu naczyń", "Nowy pacjent"],
+                )
+
+            if any(kw in message_lower for kw in ['zapalenie naczyń', 'vasculitis', 'chorob', 'czego']):
+                return AgentConversationResponse(
+                    response="""**Zapalenie naczyń** (vasculitis) to grupa chorób, w których dochodzi do zapalenia ścian naczyń krwionośnych.
+
+**Główne typy:**
+- GPA (ziarniniakowatość z zapaleniem naczyń)
+- MPA (mikroskopowe zapalenie naczyń)
+- EGPA (eozynofilowa ziarniniakowatość, Churg-Strauss)
+
+**Czynniki prognostyczne:**
+- Wiek w momencie rozpoznania
+- Zajęcie nerek, serca, OUN
+- Liczba zajętych narządów
+- Przebieg zaostrzeń
+
+**Leczenie:** glikokortykosteroidy, cyklofosfamid, rytuksymab, a w ciężkich przypadkach plazmafereza.
+
+Czy chcesz wiedzieć więcej?""",
+                    collected_data=collected,
+                    current_step=current_step,
+                    phase="discussion",
+                    follow_up_suggestions=["Jakie czynniki wpływają na wynik?", "Co mogę zrobić?", "Nowy pacjent"],
+                )
+
+            # General discussion
+            return AgentConversationResponse(
+                response="""Mogę pomóc Ci z:
+
+- **Czynniki ryzyka** -- co wpływa na wynik
+- **Zalecenia** -- na co zwrócić uwagę
+- **Zapalenie naczyń** -- informacje o chorobie
+- **Nowy pacjent** -- rozpocznij od nowa
+
+O co chciałbyś zapytać?""",
+                collected_data=collected,
+                current_step=current_step,
+                phase="discussion",
+                follow_up_suggestions=["Jakie czynniki wpływają na wynik?", "Opowiedz o zapaleniu naczyń", "Nowy pacjent"],
+            )
+
+        # ========================================
+        # Phase: COLLECTING data
+        # ========================================
+        if phase == "collecting":
+            # Parse the user's answer for the current step
+            if current_step > 0 and current_step <= len(_COLLECTION_STEPS):
+                step = _COLLECTION_STEPS[current_step - 1]
+
+                if _is_skip(user_message):
+                    collected[step["field"]] = step["default"]
+                elif step["type"] == "boolean":
+                    collected[step["field"]] = _parse_boolean(user_message)
+                elif step["type"] == "number":
+                    parsed = _parse_number(user_message)
+                    collected[step["field"]] = parsed if parsed is not None else step["default"]
+                else:
+                    collected[step["field"]] = step["default"]
+
+            # Check if we've collected all steps
+            if current_step >= len(_COLLECTION_STEPS):
+                # All data collected → prediction!
+                patient_data = dict(collected)
+                patient_data.update(_DEFAULT_EXTRA_FIELDS)
+
+                pred_data = await run_prediction_tool(PatientInput(**patient_data))
+
+                risk_level_pl = {
+                    "low": "Niskie",
+                    "moderate": "Umiarkowane",
+                    "high": "Wysokie",
+                }.get(pred_data.prediction.risk_level.value, pred_data.prediction.risk_level.value)
+
+                risk_factors = [f for f in pred_data.factors if f.contribution > 0][:5]
+                protective_factors = [f for f in pred_data.factors if f.contribution < 0][:5]
+
+                response = f"""**Zebrałem wszystkie dane! Oto wynik analizy:**
+
+**Poziom ryzyka:** {risk_level_pl}
+**Prawdopodobieństwo:** {pred_data.prediction.probability:.1%}
+"""
+
+                if risk_factors:
+                    response += "\n**Czynniki zwiększające ryzyko:**\n"
+                    for f in risk_factors:
+                        response += f"- {f.feature}: +{f.contribution:.3f}\n"
+                if protective_factors:
+                    response += "\n**Czynniki zmniejszające ryzyko:**\n"
+                    for f in protective_factors:
+                        response += f"- {f.feature}: {f.contribution:.3f}\n"
+
+                response += """\nPoniżej znajdziesz interaktywne wykresy. Możesz mnie teraz pytać o:\n- Czynniki wpływające na wynik\n- Zalecenia\n- Informacje o zapaleniu naczyń\n- Rozpocząć analizę nowego pacjenta"""
+
+                return AgentConversationResponse(
+                    response=response,
+                    collected_data=collected,
+                    current_step=current_step,
+                    phase="discussion",
+                    prediction_data=pred_data,
+                    follow_up_suggestions=["Jakie czynniki wpływają na wynik?", "Co mogę zrobić?", "Nowy pacjent"],
+                )
+
+            # Ask the next question
+            next_step_idx = current_step
+            if next_step_idx < len(_COLLECTION_STEPS):
+                next_step = _COLLECTION_STEPS[next_step_idx]
+                progress = f"[{next_step_idx + 1}/{len(_COLLECTION_STEPS)}]"
+                question = f"{progress} {next_step['question']}"
+
+                # Build field_meta for frontend widget rendering
+                field_meta = {
+                    "field": next_step["field"],
+                    "type": next_step["type"],
+                    "widget": next_step.get("widget", "input"),
+                }
+                if next_step.get("min") is not None:
+                    field_meta["min"] = next_step["min"]
+                if next_step.get("max") is not None:
+                    field_meta["max"] = next_step["max"]
+                if next_step.get("step") is not None:
+                    field_meta["step"] = next_step["step"]
+                if next_step.get("unit"):
+                    field_meta["unit"] = next_step["unit"]
+                if next_step.get("options"):
+                    field_meta["options"] = next_step["options"]
+
+                return AgentConversationResponse(
+                    response=question,
+                    collected_data=collected,
+                    current_step=next_step_idx + 1,
+                    phase="collecting",
+                    missing_fields=[s["field"] for s in _COLLECTION_STEPS[next_step_idx:]],
+                    follow_up_suggestions=next_step.get("options", []),
+                    field_meta=field_meta,
+                )
+
+        # Fallback — start over
+        return AgentConversationResponse(
+            response="Zaczynamy od nowa!\n\n" + _COLLECTION_STEPS[0]["question"],
+            collected_data={},
+            current_step=1,
+            phase="collecting",
+            missing_fields=[s["field"] for s in _COLLECTION_STEPS],
+            follow_up_suggestions=_COLLECTION_STEPS[0].get("options", []),
+            field_meta={
+                "field": _COLLECTION_STEPS[0]["field"],
+                "type": _COLLECTION_STEPS[0]["type"],
+                "widget": _COLLECTION_STEPS[0].get("widget", "input"),
+                **({"min": _COLLECTION_STEPS[0]["min"], "max": _COLLECTION_STEPS[0]["max"], "step": _COLLECTION_STEPS[0]["step"], "unit": _COLLECTION_STEPS[0]["unit"]} if _COLLECTION_STEPS[0].get("widget") == "slider" else {}),
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Błąd agent conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CHAT (z narzędziem predykcji)
+# ============================================================================
+
+# Intencje związane z predykcją
+_PREDICTION_KEYWORDS = [
+    'predykc', 'ryzyko', 'śmiertelno', 'smiertelno', 'prawdopodob',
+    'wynik', 'analiz', 'ocen', 'jakie szanse', 'jakie ryzyko',
+    'prognos', 'zgon', 'ryzyk', 'mortality', 'risk',
+    'jakie jest ryzyko', 'oblicz', 'policz', 'sprawdź', 'sprawdz',
+]
+
+_FACTOR_KEYWORDS = [
+    'czynnik', 'wpływa', 'dlaczego', 'powód', 'powod', 'przyczyn',
+    'co zwiększa', 'co zmniejsza', 'shap', 'ważno', 'wplyw',
+]
+
+_RECOMMENDATION_KEYWORDS = [
+    'pomoc', 'co robić', 'co robic', 'zalec', 'rekomend', 'sugesti',
+    'porad', 'co mogę', 'co powinien', 'co powinienem',
+]
+
+
+def _build_prediction_response(pred_result: PredictionOutput, factor_data: list) -> str:
+    """Zbuduj tekstową odpowiedź agenta z wynikami predykcji."""
+    risk_level_pl = {
+        "low": "Niskie",
+        "moderate": "Umiarkowane",
+        "high": "Wysokie",
+    }.get(pred_result.risk_level.value, pred_result.risk_level.value)
+
+    response = f"""Na podstawie wprowadzonych danych przeprowadziłem analizę ryzyka śmiertelności:
+
+**Poziom ryzyka:** {risk_level_pl}
+**Prawdopodobieństwo:** {pred_result.probability:.1%}
+"""
+
+    if factor_data:
+        risk_factors = [f for f in factor_data if f.contribution > 0]
+        protective_factors = [f for f in factor_data if f.contribution < 0]
+
+        if risk_factors:
+            response += "\n**Czynniki zwiększające ryzyko:**\n"
+            for f in risk_factors[:5]:
+                response += f"- {f.feature}: +{f.contribution:.3f}\n"
+
+        if protective_factors:
+            response += "\n**Czynniki zmniejszające ryzyko:**\n"
+            for f in protective_factors[:5]:
+                response += f"- {f.feature}: {f.contribution:.3f}\n"
+
+    response += """\nPoniżej znajdziesz interaktywne wykresy z szczegółową analizą.\n\nCzy chciałbyś/chciałabyś dowiedzieć się więcej o konkretnych czynnikach?"""
+
+    return response
+
+
+def _build_factor_response(factor_data: list) -> str:
+    """Zbuduj odpowiedź o czynnikach ryzyka."""
+    if not factor_data:
+        return "Brak danych o czynnikach ryzyka. Najpierw przeprowadź analizę pacjenta."
+
+    sorted_factors = sorted(factor_data, key=lambda f: abs(f.contribution), reverse=True)
+
+    response = "Oto szczegółowe zestawienie czynników wpływających na ocenę ryzyka:\n\n"
+
+    for i, f in enumerate(sorted_factors[:8], 1):
+        direction = "↑ zwiększa" if f.contribution > 0 else "↓ zmniejsza"
+        response += f"{i}. **{f.feature}**: {direction} ryzyko (wpływ: {f.contribution:+.3f})\n"
+
+    response += "\nCzy chcesz dowiedzieć się więcej o którymś z tych czynników?"
+    return response
+
+
+def _build_recommendation_response() -> str:
+    """Zbuduj odpowiedź z zaleceniami."""
+    return """Oto moje zalecenia:
+
+1. **Regularne konsultacje** z lekarzem prowadzącym
+2. **Przestrzeganie zaleceń** dotyczących leczenia
+3. **Zgłaszanie objawów** — informuj lekarza o wszelkich niepokojących zmianach
+4. **Monitorowanie** regularnie wykonuj zalecone badania kontrolne
+
+Pamiętaj, że ta analiza jest narzędziem wspierającym — ostateczne decyzje
+dotyczące leczenia powinny być podejmowane wspólnie z lekarzem.
+
+Czy masz dodatkowe pytania?"""
+
+
+def _build_general_response() -> str:
+    """Zbuduj ogólną odpowiedź powitalną."""
+    return """Jestem asystentem pomagającym zrozumieć wyniki analizy ryzyka śmiertelności w zapaleniu naczyń.
+
+Mogę pomóc Ci z:
+- **Predykcją ryzyka** — obliczę prawdopodobieństwo na podstawie danych pacjenta
+- **Wyjaśnieniem czynników** — powiem co wpływa na wynik i dlaczego
+- **Zaleceniami** — podpowiem na co zwrócić uwagę
+
+Aby przeprowadzić analizę, potrzebuję danych pacjenta. Wypełnij formularz
+po lewej stronie, a następnie zapytaj mnie o wynik.
+
+O czym chciałbyś/chciałabyś porozmawiać?"""
+
+
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(request: ChatRequest):
     """
     Rozmowa z agentem AI.
 
     Odpowiada na pytania pacjenta/klinicysty o wyniki analizy.
+    Może wywołać narzędzie predykcji i zwrócić dane do wyświetlenia wykresów.
     """
     try:
-        # Prosty response bez RAG
         message = request.message.lower()
+        prediction_data: Optional[AgentPredictionData] = None
 
-        # Wykryj intencję
-        if any(word in message for word in ['wynik', 'analiza', 'ryzyko']):
-            prediction = await predict(request.patient)
-            response = f"""
-Na podstawie wprowadzonych danych, poziom ryzyka wynosi: **{prediction.risk_level.value}**
-(prawdopodobieństwo: {prediction.probability:.1%}).
+        # Wykryj intencję — predykcja
+        is_prediction_intent = any(kw in message for kw in _PREDICTION_KEYWORDS)
+        is_factor_intent = any(kw in message for kw in _FACTOR_KEYWORDS)
+        is_recommendation_intent = any(kw in message for kw in _RECOMMENDATION_KEYWORDS)
 
-Główne czynniki brane pod uwagę to wiek, stan narządów i historia leczenia.
+        if is_prediction_intent:
+            # Użyj narzędzia predykcji
+            pred_result = await run_prediction_tool(request.patient)
+            prediction_data = pred_result
+            response = _build_prediction_response(pred_result.prediction, pred_result.factors)
 
-Czy chciałbyś/chciałabyś dowiedzieć się więcej o konkretnych czynnikach?
-"""
-        elif any(word in message for word in ['czynnik', 'wpływa', 'dlaczego']):
-            demo_exp = get_demo_explanation(request.patient)
-            factors = demo_exp["risk_factors"][:3]
-            response = "Główne czynniki wpływające na ocenę to:\n\n"
-            for i, f in enumerate(factors, 1):
-                response += f"{i}. {f['feature']}\n"
-            response += "\nCzy masz pytania o któryś z tych czynników?"
-        elif any(word in message for word in ['pomoc', 'co robić', 'zalec']):
-            response = """
-Zalecam:
-1. Regularnie konsultować się z lekarzem prowadzącym
-2. Przestrzegać zaleceń dotyczących leczenia
-3. Zgłaszać wszelkie niepokojące objawy
+        elif is_factor_intent:
+            # Najpierw pobierz predykcję, żeby mieć czynniki
+            pred_result = await run_prediction_tool(request.patient)
+            prediction_data = pred_result
+            response = _build_factor_response(pred_result.factors)
 
-Pamiętaj, że ta analiza jest narzędziem wspierającym - ostateczne decyzje
-dotyczące leczenia powinny być podejmowane wspólnie z lekarzem.
-"""
+        elif is_recommendation_intent:
+            response = _build_recommendation_response()
+
         else:
-            response = """
-Jestem asystentem pomagającym zrozumieć wyniki analizy ryzyka.
-
-Mogę pomóc Ci z:
-- Wyjaśnieniem wyniku analizy
-- Omówieniem czynników wpływających na ocenę
-- Ogólnymi informacjami o zapaleniu naczyń
-
-O czym chciałbyś/chciałabyś porozmawiać?
-"""
+            response = _build_general_response()
 
         # Dodaj disclaimer dla pacjentów
         if request.health_literacy != HealthLiteracyLevel.CLINICIAN:
@@ -996,12 +1624,15 @@ O czym chciałbyś/chciałabyś porozmawiać?
             response=response,
             detected_concerns=None,
             follow_up_suggestions=[
-                "Opowiedz mi więcej o czynnikach ryzyka",
+                "Jakie czynniki wpływają na wynik?",
                 "Co mogę zrobić, aby poprawić swoje zdrowie?",
-                "Czy powinienem/powinnam martwić się wynikiem?"
-            ]
+                "Czy powinienem/powinnam martwić się wynikiem?",
+            ],
+            prediction_data=prediction_data,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Błąd chatu: {e}")
         raise HTTPException(status_code=500, detail=str(e))

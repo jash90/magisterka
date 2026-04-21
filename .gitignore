@@ -75,3 +75,16 @@ htmlcov/
 
 .old-scripts/
 old-script/
+
+# Node
+node_modules/
+package-lock.json
+package.json
+
+# Pi agent
+.pi/
+
+# Test files
+test-*.mjs
+test_screenshots/
+PLAN.md

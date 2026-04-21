@@ -4,8 +4,7 @@ import { FileUpload } from '../batch/FileUpload';
 import type { PatientInput } from '../../api/types';
 
 interface SidebarProps {
-  mode: 'single' | 'batch';
-  onModeChange: (mode: 'single' | 'batch') => void;
+  mode: 'single' | 'agent' | 'batch';
   onAnalyze: (patient: PatientInput) => void;
   onFileSelect: (file: File) => void;
   isAnalyzing: boolean;
@@ -23,7 +22,7 @@ P008,78,K,70,5,1,1,1,1,250,120
 P009,51,M,48,2,0,0,0,0,95,30
 P010,63,K,58,3,1,0,1,0,145,55`;
 
-export function Sidebar({ mode, onModeChange, onAnalyze, onFileSelect, isAnalyzing }: SidebarProps) {
+export function Sidebar({ mode, onAnalyze, onFileSelect, isAnalyzing }: SidebarProps) {
   function handleSampleDownload() {
     const blob = new Blob([SAMPLE_CSV], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -36,38 +35,37 @@ export function Sidebar({ mode, onModeChange, onAnalyze, onFileSelect, isAnalyzi
 
   return (
     <aside className="w-80 shrink-0 overflow-y-auto border-r border-gray-700 bg-gray-900 p-4">
-      <h2 className="mb-4 text-lg font-bold text-blue-300">{pl.sidebar.analysisMode}</h2>
+      {mode === 'single' && (
+        <>
+          <h2 className="mb-4 text-lg font-bold text-blue-300">{pl.sidebar.patientData}</h2>
+          <PatientForm onSubmit={onAnalyze} isSubmitting={isAnalyzing} />
+        </>
+      )}
 
-      <div className="mb-4 flex rounded-lg bg-gray-800 p-1">
-        <button
-          onClick={() => onModeChange('single')}
-          className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
-            mode === 'single' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          {pl.sidebar.singlePatient}
-        </button>
-        <button
-          onClick={() => onModeChange('batch')}
-          className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
-            mode === 'batch' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          {pl.sidebar.batchAnalysis}
-        </button>
-      </div>
+      {mode === 'agent' && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-blue-300">Agent AI</h2>
+          <p className="text-sm text-gray-400">
+            Asystent AI przeprowadzi Cię przez proces zbierania danych pacjenta w formie rozmowy,
+            wykona predykcję ryzyka śmiertelności i przedstawi wyniki z interaktywnymi wykresami.
+          </p>
+          <div className="rounded-lg bg-blue-900/20 p-3 text-xs text-blue-300">
+            <p className="font-semibold">Jak to działa?</p>
+            <ol className="mt-1 list-inside list-decimal space-y-1 text-blue-400">
+              <li>Kliknij &quot;Rozpocznij rozmowę&quot;</li>
+              <li>Odpowiadaj na pytania agenta</li>
+              <li>Otrzymasz predykcję z wykresami</li>
+              <li>Możesz pytać o chorobę i czynniki</li>
+            </ol>
+          </div>
+        </div>
+      )}
 
-      <hr className="my-4 border-gray-700" />
-
-      {mode === 'single' ? (
-        <PatientForm onSubmit={onAnalyze} isSubmitting={isAnalyzing} />
-      ) : (
+      {mode === 'batch' && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-blue-300">{pl.sidebar.uploadFile}</h2>
           <FileUpload onFileSelect={onFileSelect} disabled={isAnalyzing} />
-
           <p className="text-xs text-gray-500">Obsługiwane: do 50,000+ pacjentów | Max 100MB</p>
-
           <hr className="border-gray-700" />
           <button
             onClick={handleSampleDownload}

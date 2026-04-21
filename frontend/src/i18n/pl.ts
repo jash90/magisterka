@@ -107,13 +107,13 @@ export const pl = {
     ],
     howTo: 'Jak zacząć?',
     steps: [
-      'Wprowadź dane pacjenta w panelu bocznym',
-      'Kliknij przycisk Analizuj',
+      'Wypełnij formularz danymi pacjenta',
+      'Kliknij Analizuj',
       'Przeglądaj wyniki i wyjaśnienia',
     ],
-    models: { title: 'Modele ML', items: ['XGBoost', 'Random Forest', 'LightGBM'] },
-    xai: { title: 'Metody XAI', items: ['SHAP', 'LIME', 'DALEX', 'EBM'] },
-    metrics: { title: 'Metryki', items: ['AUC-ROC > 0.85', 'Sensitivity > 0.80', 'Specificity > 0.75'] },
+    models: { title: 'Modele ML', items: ['XGBoost (AUC 0.81)', 'Random Forest (AUC 0.83)', 'LightGBM (AUC 0.80)'] },
+    xai: { title: 'Metody XAI', items: ['SHAP (TreeExplainer)', 'LIME'] },
+    metrics: { title: 'Dane treningowe', items: ['719 pacjentow', '20 cech wejsciowych', '5-fold CV', 'Zbalansowane klasy'] },
   },
   footer: {
     disclaimer:
@@ -122,6 +122,7 @@ export const pl = {
   common: {
     loading: 'Ładowanie...',
     error: 'Wystąpił błąd',
+    predictionError: 'Nie udało się uzyskać predykcji. Sprawdź połączenie z serwerem API.',
     demoMode: 'Tryb demo',
     apiMode: 'Tryb API',
   },

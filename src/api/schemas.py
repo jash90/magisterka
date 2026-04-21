@@ -136,6 +136,22 @@ class FeatureContribution(BaseModel):
     direction: str
 
 
+class ModelPrediction(BaseModel):
+    """Predykcja pojedynczego modelu."""
+    model_name: str = Field(..., description="Nazwa modelu")
+    probability: float = Field(..., ge=0, le=1, description="Prawdopodobieństwo zgonu")
+    risk_level: RiskLevel
+    prediction: int = Field(..., ge=0, le=1)
+
+
+class MultiModelPredictionOutput(BaseModel):
+    """Predykcje ze wszystkich modeli."""
+    models: List[ModelPrediction] = Field(default_factory=list)
+    ensemble_probability: float = Field(..., ge=0, le=1, description="Średnie prawdopodobieństwo")
+    ensemble_risk_level: RiskLevel
+    primary_model: str = Field(default="xgboost", description="Model główny")
+
+
 class PredictionOutput(BaseModel):
     """Wynik predykcji."""
     probability: float = Field(..., ge=0, le=1, description="Prawdopodobieństwo zgonu")
@@ -218,6 +234,7 @@ class ChatResponse(BaseModel):
     response: str
     detected_concerns: Optional[List[str]] = None
     follow_up_suggestions: Optional[List[str]] = None
+    prediction_data: Optional["AgentPredictionData"] = None
 
 
 class ComparisonResult(BaseModel):
@@ -348,8 +365,45 @@ class DemoModeRequest(BaseModel):
     enabled: bool
 
 
+class AgentPredictionFactor(BaseModel):
+    """Czynnik ryzyka z predykcji agenta."""
+    feature: str
+    contribution: float
+    direction: str = "increases_risk"
+
+
+class AgentPredictionData(BaseModel):
+    """Dane predykcji zwracane przez agenta w czacie."""
+    prediction: PredictionOutput
+    factors: List[AgentPredictionFactor] = []
+    base_value: float = 0.0
+
+
 # ============================================================================
-# HELPER FUNCTIONS
+# AGENT CONVERSATION SCHEMAS
+# ============================================================================
+
+class AgentConversationRequest(BaseModel):
+    """Request dla konwersacyjnego agenta zbierającego dane."""
+    message: str = Field(..., min_length=1, max_length=2000)
+    conversation_history: List[Dict[str, str]] = Field(default_factory=list)
+    collected_data: Dict[str, Any] = Field(default_factory=dict)
+    current_step: int = 0
+    phase: str = "collecting"  # collecting | prediction | discussion
+
+
+class AgentConversationResponse(BaseModel):
+    """Odpowiedź agenta konwersacyjnego."""
+    response: str
+    collected_data: Dict[str, Any] = Field(default_factory=dict)
+    current_step: int = 0
+    phase: str = "collecting"
+    missing_fields: List[str] = Field(default_factory=list)
+    prediction_data: Optional[AgentPredictionData] = None
+    follow_up_suggestions: List[str] = Field(default_factory=list)
+    field_meta: Optional[Dict[str, Any]] = None
+
+
 # ============================================================================
 
 def patient_to_array(patient: PatientInput, feature_order: List[str]) -> List[float]:

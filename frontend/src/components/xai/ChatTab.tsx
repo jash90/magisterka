@@ -1,37 +1,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChat } from '../../hooks/useApi';
+import { GaugeChart } from '../charts/GaugeChart';
+import { WaterfallChart } from '../charts/WaterfallChart';
+import { RiskBadge } from '../common/RiskBadge';
+import { MarkdownMessage } from '../common/MarkdownMessage';
 import { pl } from '../../i18n/pl';
-import type { PatientInput, PredictionOutput } from '../../api/types';
-import type { DemoFactor } from '../../lib/demo';
+import type { PatientInput, ChatPredictionData } from '../../api/types';
 
 interface ChatTabProps {
   patient: PatientInput;
-  prediction: PredictionOutput;
-  factors: DemoFactor[];
 }
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  prediction_data?: ChatPredictionData | null;
 }
 
-function getDemoResponse(prompt: string, prediction: PredictionOutput, factors: DemoFactor[]): string {
-  const sorted = [...factors].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
-
-  if (['wynik', 'ryzyko', 'analiza'].some((w) => prompt.toLowerCase().includes(w))) {
-    return `Na podstawie analizy, poziom ryzyka wynosi **${prediction.risk_level}** (prawdopodobieństwo: ${(prediction.probability * 100).toFixed(1)}%).\n\nGłówne czynniki to:\n- ${sorted[0]?.feature ?? 'brak'}\n- ${sorted[1]?.feature ?? 'brak'}\n\nCzy masz dodatkowe pytania?\n\n*Pamiętaj: to narzędzie informacyjne, skonsultuj się z lekarzem.*`;
-  }
-  if (['czynnik', 'dlaczego'].some((w) => prompt.toLowerCase().includes(w))) {
-    let resp = 'Główne czynniki wpływające na ocenę to:\n\n';
-    sorted.slice(0, 3).forEach((f) => {
-      resp += `- **${f.feature}**: wpływ ${f.contribution >= 0 ? '+' : ''}${f.contribution.toFixed(3)}\n`;
-    });
-    return resp + '\n\n*Pamiętaj: to narzędzie informacyjne, skonsultuj się z lekarzem.*';
-  }
-  return 'Mogę pomóc Ci zrozumieć:\n- Wyniki analizy ryzyka\n- Czynniki wpływające na ocenę\n- Znaczenie poszczególnych wskaźników\n\nO czym chciałbyś porozmawiać?\n\n*Pamiętaj: to narzędzie informacyjne, skonsultuj się z lekarzem.*';
-}
-
-export function ChatTab({ patient, prediction, factors }: ChatTabProps) {
+export function ChatTab({ patient }: ChatTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const chatMutation = useChat();
@@ -57,10 +43,18 @@ export function ChatTab({ patient, prediction, factors }: ChatTabProps) {
         health_literacy: 'basic',
         conversation_history: history,
       });
-      setMessages((prev) => [...prev, { role: 'assistant', content: res.response }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: res.response, prediction_data: res.prediction_data },
+      ]);
     } catch {
-      const demoResp = getDemoResponse(prompt, prediction, factors);
-      setMessages((prev) => [...prev, { role: 'assistant', content: demoResp }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Nie udało się uzyskać odpowiedzi z serwera. Sprawdź połączenie z API i spróbuj ponownie.',
+        },
+      ]);
     }
   };
 
@@ -68,7 +62,7 @@ export function ChatTab({ patient, prediction, factors }: ChatTabProps) {
     <div>
       <h3 className="mb-4 text-lg font-semibold text-gray-200">{pl.xai.chatTitle}</h3>
 
-      <div className="flex h-96 flex-col rounded-lg border border-gray-700 bg-gray-800/50">
+      <div className="flex h-[32rem] flex-col rounded-lg border border-gray-700 bg-gray-800/50">
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && (
             <p className="text-center text-sm text-gray-500">Zadaj pytanie o wyniki analizy</p>
@@ -76,17 +70,50 @@ export function ChatTab({ patient, prediction, factors }: ChatTabProps) {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
-                msg.role === 'user'
-                  ? 'ml-auto bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-200'
+              className={`${
+                msg.role === 'user' ? 'ml-auto max-w-[80%]' : 'mr-auto max-w-[95%]'
               }`}
             >
-              {msg.content.split('\n').map((line, j) => (
-                <p key={j} className={j > 0 ? 'mt-1' : ''}>
-                  {line}
-                </p>
-              ))}
+              <div
+                className={`rounded-lg px-3 py-2 text-sm leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-200'
+                }`}
+              >
+                {msg.role === 'user' ? (
+                  msg.content.split('\n').map((line, j) => (
+                    <p key={j} className={j > 0 ? 'mt-1' : ''}>{line}</p>
+                  ))
+                ) : (
+                  <MarkdownMessage content={msg.content} />
+                )}
+              </div>
+
+              {/* Inline prediction charts when agent returns prediction data */}
+              {msg.role === 'assistant' && msg.prediction_data && (
+                <div className="mt-2 rounded-lg border border-gray-600 bg-gray-800 p-3">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <GaugeChart
+                        probability={msg.prediction_data.prediction.probability}
+                        title="Ryzyko śmiertelności"
+                      />
+                      <div className="mt-2 flex justify-center">
+                        <RiskBadge level={msg.prediction_data.prediction.risk_level} />
+                      </div>
+                    </div>
+                    <div>
+                      {msg.prediction_data.factors.length > 0 && (
+                        <WaterfallChart
+                          factors={msg.prediction_data.factors}
+                          title="Wpływ czynników (SHAP)"
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {chatMutation.isPending && (
