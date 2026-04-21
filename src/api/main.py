@@ -149,11 +149,53 @@ class AppState:
             logger.info(f"Wczytano {len(self.feature_names)} nazw cech")
 
             self.is_loaded = True
+
+            # Inicjalizuj XAI explainery
+            models_dir = Path(model_path).parent
+            self._init_xai_explainers(models_dir)
+
             return True
 
         except Exception as e:
             logger.error(f"Błąd wczytywania modeli: {e}")
             return False
+
+    def _init_xai_explainers(self, models_dir: Path):
+        """Inicjalizuj SHAP i LIME explainery z prawdziwymi danymi."""
+        import joblib
+        from src.xai.shap_explainer import SHAPExplainer
+        from src.xai.lime_explainer import LIMEExplainer
+
+        try:
+            X_background_path = models_dir / "X_background.joblib"
+            X_train_path = models_dir / "X_train.joblib"
+
+            if X_background_path.exists():
+                X_background = joblib.load(X_background_path)
+                self.shap_explainer = SHAPExplainer(
+                    model=self.model,
+                    X_background=X_background,
+                    feature_names=self.feature_names
+                )
+                logger.info("SHAPExplainer zainicjalizowany z prawdziwymi danymi")
+            else:
+                logger.warning("X_background.joblib nie znaleziony — SHAP w trybie demo")
+
+            if X_train_path.exists():
+                X_train = joblib.load(X_train_path)
+                self.lime_explainer = LIMEExplainer(
+                    model=self.model,
+                    X_train=X_train,
+                    feature_names=self.feature_names
+                )
+                logger.info("LIMEExplainer zainicjalizowany z prawdziwymi danymi")
+            else:
+                logger.warning("X_train.joblib nie znaleziony — LIME w trybie demo")
+
+        except Exception as e:
+            logger.error(f"Błąd inicjalizacji XAI explainerów: {e}")
+            self.shap_explainer = None
+            self.lime_explainer = None
 
 
 app_state = AppState()
@@ -190,39 +232,30 @@ async def shutdown_event():
 
 def get_demo_prediction(patient: PatientInput) -> PredictionOutput:
     """Wygeneruj demo predykcję gdy model nie jest załadowany."""
-    # Prosta heurystyka dla demo
     risk_score = 0.0
 
-    # Wiek
-    risk_score += max(0, (patient.wiek - 50) / 100)
-
-    # Liczba narządów
     risk_score += patient.liczba_zajetych_narzadow * 0.1
 
-    # Krytyczne manifestacje
     if patient.manifestacja_nerki:
         risk_score += 0.15
     if patient.manifestacja_sercowo_naczyniowy:
         risk_score += 0.15
     if patient.manifestacja_zajecie_csn:
         risk_score += 0.2
-
-    # OIT
     if patient.zaostrz_wymagajace_oit:
         risk_score += 0.25
+    if patient.zaostrz_wymagajace_hospital:
+        risk_score += 0.1
+    if patient.plazmaferezy:
+        risk_score += 0.1
 
-    # Dializa
-    if patient.dializa:
-        risk_score += 0.2
-
-    # Ogranicz do [0, 1]
     probability = min(max(risk_score, 0.05), 0.95)
 
     return PredictionOutput(
         probability=probability,
         risk_level=get_risk_level_from_probability(probability),
         prediction=1 if probability > 0.5 else 0,
-        confidence_interval={"lower": probability - 0.1, "upper": probability + 0.1}
+        confidence_interval={"lower": max(0, probability - 0.1), "upper": min(1, probability + 0.1)}
     )
 
 
@@ -231,20 +264,12 @@ def get_demo_explanation(patient: PatientInput) -> dict:
     risk_factors = []
     protective_factors = []
 
-    if patient.wiek > 60:
-        risk_factors.append({
-            "feature": "Wiek",
-            "value": patient.wiek,
-            "contribution": 0.15,
-            "direction": "zwiększa ryzyko"
-        })
-
     if patient.manifestacja_nerki:
         risk_factors.append({
             "feature": "Manifestacja_Nerki",
             "value": 1,
             "contribution": 0.12,
-            "direction": "zwiększa ryzyko"
+            "direction": "increases_risk"
         })
 
     if patient.zaostrz_wymagajace_oit:
@@ -252,15 +277,7 @@ def get_demo_explanation(patient: PatientInput) -> dict:
             "feature": "Zaostrz_Wymagajace_OIT",
             "value": 1,
             "contribution": 0.2,
-            "direction": "zwiększa ryzyko"
-        })
-
-    if patient.wiek < 50:
-        protective_factors.append({
-            "feature": "Wiek",
-            "value": patient.wiek,
-            "contribution": -0.1,
-            "direction": "zmniejsza ryzyko"
+            "direction": "increases_risk"
         })
 
     if patient.liczba_zajetych_narzadow <= 2:
@@ -268,7 +285,7 @@ def get_demo_explanation(patient: PatientInput) -> dict:
             "feature": "Liczba_Zajetych_Narzadow",
             "value": patient.liczba_zajetych_narzadow,
             "contribution": -0.08,
-            "direction": "zmniejsza ryzyko"
+            "direction": "decreases_risk"
         })
 
     return {
@@ -591,13 +608,45 @@ async def explain_shap(request: ExplanationRequest):
     Zwraca wartości SHAP dla cech pacjenta.
     """
     try:
-        # Najpierw predykcja
         prediction = await predict(request.patient)
 
-        # Demo wyjaśnienie
-        demo_exp = get_demo_explanation(request.patient)
+        # Użyj prawdziwego SHAP explainera jeśli dostępny
+        if app_state.shap_explainer is not None:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            instance = np.array(features)
+            real_exp = app_state.shap_explainer.explain_instance(instance)
 
-        # Utwórz strukturę SHAP
+            shap_values = {}
+            contributions = []
+            risk_factors = []
+            protective_factors = []
+
+            for fi in real_exp['feature_impacts'][:request.num_features]:
+                shap_values[fi['feature']] = fi['shap_value']
+                direction = "increases_risk" if fi['shap_value'] > 0 else "decreases_risk"
+                entry = {
+                    "feature": fi['feature'],
+                    "value": fi['feature_value'],
+                    "contribution": fi['shap_value'],
+                    "direction": direction
+                }
+                contributions.append(entry)
+                if fi['shap_value'] > 0:
+                    risk_factors.append(entry)
+                elif fi['shap_value'] < 0:
+                    protective_factors.append(entry)
+
+            return SHAPExplanation(
+                base_value=real_exp['base_value'],
+                shap_values=shap_values,
+                feature_contributions=contributions,
+                risk_factors=risk_factors,
+                protective_factors=protective_factors,
+                prediction=prediction
+            )
+
+        # Fallback do demo
+        demo_exp = get_demo_explanation(request.patient)
         shap_values = {}
         contributions = []
 
@@ -642,6 +691,41 @@ async def explain_lime(request: ExplanationRequest):
     """
     try:
         prediction = await predict(request.patient)
+
+        # Użyj prawdziwego LIME explainera jeśli dostępny
+        if app_state.lime_explainer is not None:
+            features = patient_to_array(request.patient, app_state.feature_names)
+            instance = np.array(features)
+            real_exp = app_state.lime_explainer.explain_instance(
+                instance, num_features=request.num_features
+            )
+
+            feature_weights = []
+            risk_factors = []
+            protective_factors = []
+
+            for feat_desc, weight in real_exp['feature_weights'][:request.num_features]:
+                feature_weights.append({
+                    "feature": feat_desc,
+                    "weight": weight,
+                    "condition": feat_desc
+                })
+                entry = {"feature": feat_desc, "weight": weight}
+                if weight > 0:
+                    risk_factors.append(entry)
+                else:
+                    protective_factors.append(entry)
+
+            return LIMEExplanation(
+                intercept=real_exp['intercept'],
+                feature_weights=feature_weights,
+                risk_factors=risk_factors,
+                protective_factors=protective_factors,
+                local_prediction=real_exp['local_prediction'],
+                prediction=prediction
+            )
+
+        # Fallback do demo
         demo_exp = get_demo_explanation(request.patient)
 
         feature_weights = []
@@ -672,6 +756,73 @@ async def explain_lime(request: ExplanationRequest):
 
     except Exception as e:
         logger.error(f"Błąd LIME: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/explain/comparison", response_model=ComparisonResult, tags=["XAI"])
+async def explain_comparison(request: ExplanationRequest):
+    """
+    Porównaj wyjaśnienia SHAP i LIME dla pacjenta.
+
+    Zwraca rankingi cech z obu metod oraz miary zgodności.
+    """
+    try:
+        features = patient_to_array(request.patient, app_state.feature_names)
+        instance = np.array(features)
+        num_features = request.num_features
+
+        shap_ranking: List[str] = []
+        lime_ranking: List[str] = []
+
+        # SHAP ranking
+        if app_state.shap_explainer is not None:
+            shap_exp = app_state.shap_explainer.explain_instance(instance)
+            shap_ranking = [
+                fi['feature'] for fi in shap_exp['feature_impacts'][:num_features]
+            ]
+        else:
+            demo_exp = get_demo_explanation(request.patient)
+            shap_ranking = [f["feature"] for f in demo_exp["risk_factors"] + demo_exp["protective_factors"]]
+
+        # LIME ranking
+        if app_state.lime_explainer is not None:
+            lime_exp = app_state.lime_explainer.explain_instance(instance, num_features=num_features)
+            for feat_desc, _ in lime_exp['feature_weights'][:num_features]:
+                for fn in app_state.feature_names:
+                    if fn in feat_desc:
+                        if fn not in lime_ranking:
+                            lime_ranking.append(fn)
+                        break
+        else:
+            lime_ranking = list(shap_ranking)
+
+        # Oblicz zgodność
+        shap_set = set(shap_ranking[:num_features])
+        lime_set = set(lime_ranking[:num_features])
+        common = list(shap_set & lime_set)
+        union = shap_set | lime_set
+        agreement = len(common) / len(union) if union else 0.0
+
+        # Korelacja Spearmana (na wspólnych cechach)
+        spearman_corr = 0.0
+        if len(common) >= 2:
+            from scipy.stats import spearmanr
+            shap_ranks = [shap_ranking.index(f) for f in common if f in shap_ranking]
+            lime_ranks = [lime_ranking.index(f) for f in common if f in lime_ranking]
+            if len(shap_ranks) >= 2:
+                corr, _ = spearmanr(shap_ranks, lime_ranks)
+                spearman_corr = float(corr) if not np.isnan(corr) else 0.0
+
+        return ComparisonResult(
+            methods_compared=["SHAP", "LIME"],
+            ranking_agreement=agreement,
+            common_top_features=common,
+            individual_rankings={"SHAP": shap_ranking, "LIME": lime_ranking},
+            spearman_correlations={"SHAP_vs_LIME": spearman_corr}
+        )
+
+    except Exception as e:
+        logger.error(f"Błąd comparison: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
