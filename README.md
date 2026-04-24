@@ -186,6 +186,20 @@ cd frontend
 npm run dev
 ```
 
+### Portless URLs
+
+You can run both services through Portless for stable named local URLs:
+
+```bash
+./scripts/dev_portless.sh
+```
+
+This starts:
+- React frontend: https://magisterka.localhost
+- FastAPI backend: https://api.magisterka.localhost
+
+The script sets `VITE_API_PROXY_TARGET` so Vite proxies API calls (`/health`, `/predict`, `/explain`, `/chat`, `/model`, `/agent`) to the Python backend through Portless. On first use, Portless may ask to trust its local CA and bind the HTTPS proxy.
+
 ### Using Python Code Directly
 
 ```python
