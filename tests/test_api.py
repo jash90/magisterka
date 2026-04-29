@@ -20,43 +20,39 @@ class TestSchemas:
     def test_patient_input_valid(self):
         """Test poprawnych danych pacjenta."""
         patient = PatientInput(
-            wiek=55,
-            plec=1,
             wiek_rozpoznania=50,
             liczba_zajetych_narzadow=3,
             manifestacja_nerki=1,
             zaostrz_wymagajace_oit=0,
             kreatynina=100.0,
-            max_crp=30.0
+            eozynofilia_krwi_obwodowej_wartosc=0.5
         )
 
-        assert patient.wiek == 55
-        assert patient.plec == 1
+        assert patient.wiek_rozpoznania == 50
         assert patient.manifestacja_nerki == 1
 
     def test_patient_input_defaults(self):
         """Test wartości domyślnych."""
         patient = PatientInput(
-            wiek=50,
-            plec=0
+            wiek_rozpoznania=50
         )
 
         assert patient.liczba_zajetych_narzadow == 0
         assert patient.manifestacja_nerki == 0
-        assert patient.dializa == 0
+        assert patient.plazmaferezy == 0
 
     def test_patient_input_validation_age(self):
         """Test walidacji wieku."""
         with pytest.raises(ValueError):
-            PatientInput(wiek=-5, plec=0)
+            PatientInput(wiek_rozpoznania=-5)
 
         with pytest.raises(ValueError):
-            PatientInput(wiek=150, plec=0)
+            PatientInput(wiek_rozpoznania=150)
 
-    def test_patient_input_validation_sex(self):
-        """Test walidacji płci."""
+    def test_patient_input_validation_binary_fields(self):
+        """Test walidacji pól binarnych."""
         with pytest.raises(ValueError):
-            PatientInput(wiek=50, plec=2)
+            PatientInput(wiek_rozpoznania=50, manifestacja_nerki=2)
 
     def test_prediction_output_valid(self):
         """Test poprawnego wyniku predykcji."""
@@ -94,21 +90,21 @@ class TestSchemas:
     def test_patient_to_array(self):
         """Test konwersji pacjenta do tablicy."""
         patient = PatientInput(
-            wiek=55,
-            plec=1,
+            wiek_rozpoznania=55,
+            manifestacja_nerki=1,
             kreatynina=100.0,
-            max_crp=30.0
+            plazmaferezy=1
         )
 
-        feature_order = ['Wiek', 'Plec', 'Kreatynina', 'Max_CRP']
+        feature_order = ['Wiek_rozpoznania', 'Manifestacja_Nerki', 'Kreatynina', 'Plazmaferezy']
 
         arr = patient_to_array(patient, feature_order)
 
         assert len(arr) == 4
-        assert arr[0] == 55  # Wiek
-        assert arr[1] == 1   # Plec
+        assert arr[0] == 55  # Wiek_rozpoznania
+        assert arr[1] == 1   # Manifestacja_Nerki
         assert arr[2] == 100.0  # Kreatynina
-        assert arr[3] == 30.0   # Max_CRP
+        assert arr[3] == 1   # Plazmaferezy
 
     def test_health_literacy_levels(self):
         """Test poziomów health literacy."""
@@ -169,8 +165,7 @@ class TestAPIIntegration:
     def test_predict(self, client):
         """Test predykcji."""
         patient_data = {
-            "wiek": 55,
-            "plec": 1,
+            "wiek_rozpoznania": 55,
             "liczba_zajetych_narzadow": 3,
             "manifestacja_nerki": 1
         }
@@ -185,8 +180,8 @@ class TestAPIIntegration:
         """Test wyjaśnienia SHAP."""
         request_data = {
             "patient": {
-                "wiek": 55,
-                "plec": 1
+                "wiek_rozpoznania": 55,
+                "manifestacja_nerki": 1
             },
             "method": "shap",
             "num_features": 5

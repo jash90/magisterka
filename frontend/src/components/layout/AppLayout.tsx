@@ -18,7 +18,7 @@ import { useBatchAnalysis } from '../../hooks/useBatchAnalysis';
 import { explainShap } from '../../api/endpoints';
 import type { DemoFactor } from '../../lib/demo';
 import { pl } from '../../i18n/pl';
-import type { PatientInput, PredictionOutput, MultiModelPredictionOutput, ModelPrediction } from '../../api/types';
+import type { PatientInput, PredictionOutput, MultiModelPredictionOutput } from '../../api/types';
 
 type AppMode = 'single' | 'agent' | 'batch';
 

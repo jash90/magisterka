@@ -157,6 +157,25 @@ class AppState:
                 self.feature_names = json.load(f)
             logger.info(f"Wczytano {len(self.feature_names)} nazw cech")
 
+            expected_features = getattr(self.model, "n_features_in_", None)
+            if expected_features is None and hasattr(self.model, "get_booster"):
+                try:
+                    expected_features = self.model.get_booster().num_features()
+                except Exception:
+                    expected_features = None
+
+            if expected_features is not None and int(expected_features) != len(self.feature_names):
+                logger.warning(
+                    "Model ma %s cech, ale feature_names.json ma %s. "
+                    "Pomijam model i uruchamiam API w trybie demo.",
+                    expected_features,
+                    len(self.feature_names)
+                )
+                self.model = None
+                self.feature_names = None
+                self.is_loaded = False
+                return False
+
             self.is_loaded = True
 
             # Inicjalizuj XAI explainery

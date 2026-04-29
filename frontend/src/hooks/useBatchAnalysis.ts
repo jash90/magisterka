@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import type { PatientInput, BatchResultRow, RiskLevel } from '../api/types';
-import type { ParsedPatient } from '../lib/fileParser';
 import { parseFile } from '../lib/fileParser';
 import { predictBatch } from '../api/endpoints';
 import { getDemoPrediction, getDemoExplanation } from '../lib/demo';

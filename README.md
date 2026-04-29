@@ -32,7 +32,7 @@ The system addresses the challenge of making machine learning predictions in hea
 
 ### Key Features
 
-- **Mortality risk prediction** based on 19 clinical features (demographics, organ manifestations, lab values, treatment history, complications)
+- **Mortality risk prediction** based on 20 clinical features (demographics, organ manifestations, lab values, treatment history, complications)
 - **Multi-method XAI explanations** with cross-method agreement analysis
 - **Adaptive language** - explanations tailored to basic patients, advanced patients, and clinicians
 - **Batch processing** - vectorized predictions for up to 10,000+ patients per request
@@ -284,12 +284,18 @@ vasculitis-xai/
 | `GET` | `/` | API root - returns name, version, and links |
 | `GET` | `/health` | Health check - returns model load status and API version |
 | `POST` | `/predict` | Single patient mortality risk prediction |
+| `POST` | `/predict/all` | Multi-model prediction with ensemble summary |
 | `POST` | `/predict/batch` | Batch prediction for multiple patients (vectorized, up to 10,000+) |
 | `POST` | `/explain/shap` | SHAP explanation for a single patient |
 | `POST` | `/explain/lime` | LIME explanation for a single patient |
+| `POST` | `/explain/dalex` | DALEX local explanation |
+| `POST` | `/explain/ebm` | EBM explanation |
+| `POST` | `/explain/comparison` | Cross-method explanation comparison |
 | `POST` | `/explain/patient` | Patient-friendly explanation (adapts language to health literacy level) |
 | `GET` | `/model/info` | Model metadata and performance metrics |
 | `GET` | `/model/global-importance` | Global feature importance ranking |
+| `POST` | `/agent/predict` | Agent-ready prediction payload |
+| `POST` | `/agent/chat` | Guided conversational data collection and prediction |
 | `POST` | `/chat` | Conversational agent interaction |
 | `GET` | `/config/demo-mode` | Get current demo mode status |
 | `POST` | `/config/demo-mode` | Enable or disable demo mode |
@@ -302,11 +308,13 @@ import requests
 response = requests.post(
     "http://localhost:8000/predict",
     json={
-        "wiek": 55,
-        "plec": 1,
+        "wiek_rozpoznania": 55,
+        "opoznienie_rozpoznia": 6,
         "liczba_zajetych_narzadow": 3,
         "manifestacja_nerki": 1,
-        "zaostrz_wymagajace_oit": 0
+        "zaostrz_wymagajace_oit": 0,
+        "kreatynina": 100.0,
+        "plazmaferezy": 0
     }
 )
 
@@ -322,8 +330,8 @@ response = requests.post(
     "http://localhost:8000/predict/batch",
     json={
         "patients": [
-            {"wiek": 55, "plec": 1, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
-            {"wiek": 45, "plec": 0, "liczba_zajetych_narzadow": 2, "manifestacja_nerki": 0}
+            {"wiek_rozpoznania": 55, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
+            {"wiek_rozpoznania": 45, "liczba_zajetych_narzadow": 2, "manifestacja_nerki": 0}
         ],
         "include_risk_factors": True,
         "top_n_factors": 3
@@ -339,25 +347,26 @@ print(f"High risk: {result['summary']['high_risk_count']}")
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `wiek` | float | Patient age (0-120) |
-| `plec` | int | Sex (0=Female, 1=Male) |
 | `wiek_rozpoznania` | float | Age at diagnosis (optional) |
 | `opoznienie_rozpoznia` | float | Diagnostic delay in months (optional) |
+| `manifestacja_miesno_szkiel` | int | Musculoskeletal involvement (0/1) |
+| `manifestacja_skora` | int | Skin involvement (0/1) |
+| `manifestacja_wzrok` | int | Eye involvement (0/1) |
 | `liczba_zajetych_narzadow` | int | Number of affected organs (0-20) |
 | `manifestacja_nerki` | int | Kidney involvement (0/1) |
 | `manifestacja_sercowo_naczyniowy` | int | Cardiovascular involvement (0/1) |
 | `manifestacja_zajecie_csn` | int | Central nervous system involvement (0/1) |
 | `manifestacja_neurologiczny` | int | Peripheral nervous system involvement (0/1) |
 | `manifestacja_pokarmowy` | int | Gastrointestinal involvement (0/1) |
+| `manifestacja_moczowo_plciowy` | int | Genitourinary involvement (0/1) |
+| `zaostrz_wymagajace_hospital` | int | Hospitalization-requiring flares (0/1) |
 | `zaostrz_wymagajace_oit` | int | ICU-requiring flares (0/1) |
 | `kreatynina` | float | Creatinine level in micromol/L (optional) |
-| `max_crp` | float | Maximum CRP in mg/L (optional) |
+| `eozynofilia_krwi_obwodowej_wartosc` | float | Peripheral eosinophilia value (optional) |
+| `pulsy` | int | IV steroid pulses (0/1) |
 | `plazmaferezy` | int | Plasmapheresis treatment (0/1) |
-| `dializa` | int | Dialysis treatment (0/1) |
-| `sterydy_dawka_g` | float | Steroid dose in grams (optional) |
 | `czas_sterydow` | float | Steroid treatment duration in months (optional) |
-| `powiklania_serce_pluca` | int | Cardiopulmonary complications (0/1) |
-| `powiklania_infekcja` | int | Infection complications (0/1) |
+| `biopsja_wynik` | int | Biopsy result (0/1) |
 
 ## XAI Methods
 
@@ -437,7 +446,7 @@ The agent includes a medical knowledge base about vasculitis (types, lab markers
 The React frontend provides two analysis modes:
 
 ### Single Patient Mode
-- Form for entering all 19 clinical features
+- Form for entering all 20 clinical features
 - Gauge chart showing risk probability
 - Waterfall chart (SHAP) and bar chart (LIME) of feature contributions
 - Cross-method comparison tab

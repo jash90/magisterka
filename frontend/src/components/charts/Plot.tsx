@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import factoryModule from 'react-plotly.js/factory';
 import Plotly from 'plotly.js-dist-min';
 
@@ -7,5 +8,5 @@ const createPlotlyComponent =
     ? factoryModule
     : (factoryModule as { default: typeof factoryModule }).default;
 
-const Plot = createPlotlyComponent(Plotly as object);
+const Plot = createPlotlyComponent(Plotly as object) as unknown as ComponentType<Record<string, unknown>>;
 export default Plot;

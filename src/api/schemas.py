@@ -161,7 +161,7 @@ class PredictionOutput(BaseModel):
     confidence_interval: Optional[Dict[str, float]] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "probability": 0.35,
                 "risk_level": "moderate",
@@ -286,11 +286,11 @@ class BatchPatientInput(BaseModel):
     top_n_factors: int = Field(3, ge=1, le=10, description="Liczba top czynników ryzyka")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "patients": [
-                    {"wiek": 55, "plec": 1, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
-                    {"wiek": 45, "plec": 0, "liczba_zajetych_narzadow": 2, "manifestacja_nerki": 0}
+                    {"wiek_rozpoznania": 55, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
+                    {"wiek_rozpoznania": 45, "liczba_zajetych_narzadow": 2, "manifestacja_nerki": 0}
                 ],
                 "include_risk_factors": True,
                 "top_n_factors": 3
@@ -350,7 +350,7 @@ class BatchPredictionOutput(BaseModel):
     errors: List[BatchProcessingError] = []
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "total_patients": 100,
                 "processed_count": 100,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { usePatientForm } from '../../hooks/usePatientForm';
 import { pl } from '../../i18n/pl';
 import type { PatientInput } from '../../api/types';
+import type { PatientFormData } from '../../schemas/patient';
 
 interface PatientFormProps {
   onSubmit: (patient: PatientInput) => void;
@@ -30,7 +31,7 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
 function NumberField({ label, register, name, min, max, step, unit }: {
   label: string;
   register: ReturnType<typeof usePatientForm>['form']['register'];
-  name: string;
+  name: keyof PatientFormData;
   min?: number;
   max?: number;
   step?: number;
@@ -42,7 +43,7 @@ function NumberField({ label, register, name, min, max, step, unit }: {
       <div className="relative">
         <input
           type="number"
-          {...register(name as never, { valueAsNumber: true })}
+          {...register(name, { valueAsNumber: true })}
           min={min}
           max={max}
           step={step ?? 1}
@@ -87,8 +88,8 @@ export function PatientForm({ onSubmit, isSubmitting }: PatientFormProps) {
   const { register, handleSubmit, setValue, watch } = form;
   const t = pl.form;
 
-  const handleCheck = (name: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setValue(name as never, (e.target.checked ? 1 : 0) as never);
+  const handleCheck = (name: keyof PatientFormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setValue(name, e.target.checked ? 1 : 0);
   };
 
   return (
@@ -140,7 +141,7 @@ export function PatientForm({ onSubmit, isSubmitting }: PatientFormProps) {
             <ToggleField
               key={name}
               label={label}
-              checked={watch(name as never) === 1}
+              checked={watch(name) === 1}
               onChange={handleCheck(name)}
             />
           ))}

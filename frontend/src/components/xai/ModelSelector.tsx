@@ -1,5 +1,3 @@
-import { pl } from '../../i18n/pl';
-
 interface ModelSelectorProps {
   value: string;
   onChange: (key: string) => void;
