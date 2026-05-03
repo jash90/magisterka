@@ -40,10 +40,11 @@ export function HorizontalBarChart({ factors, title = 'Ważność czynników' }:
         },
         yaxis: {
           title: { text: 'Czynnik', font: { size: 14, color: '#ffffff' } },
-          tickfont: { color: '#ffffff' },
+          tickfont: { color: '#ffffff', size: 11 },
+          automargin: true,
         },
         height: 400,
-        margin: { l: 20, r: 20, t: 50, b: 20 },
+        margin: { l: 160, r: 40, t: 50, b: 40 },
         font: { color: '#ffffff', size: 13 },
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',

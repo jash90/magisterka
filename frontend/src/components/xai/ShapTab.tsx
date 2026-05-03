@@ -10,6 +10,34 @@ interface ShapTabProps {
   factors: DemoFactor[];
 }
 
+const FEATURE_LABELS: Record<string, string> = {
+  Wiek_rozpoznania: 'Wiek rozpoznania',
+  Opoznienie_Rozpoznia: 'Opóźnienie diagnozy',
+  Manifestacja_Miesno_Szkiel: 'Mięśniowo-szkieletowy',
+  Manifestacja_Skora: 'Skóra',
+  Manifestacja_Wzrok: 'Wzrok',
+  Manifestacja_Sercowo_Naczyniowy: 'Serce/naczynia',
+  Manifestacja_Sercowo_Naczyniowy: 'Serce/naczynia',
+  Manifestacja_Pokarmowy: 'Układ pokarmowy',
+  Manifestacja_Nerki: 'Nerki',
+  Manifestacja_Moczowo_Plciowy: 'Moczowo-płciowy',
+  Manifestacja_Zajecie_CSN: 'CSN (mózg)',
+  Manifestacja_Neurologiczny: 'Neurologiczny',
+  Liczba_Zajetych_Narzadow: 'Liczba zajętych narządów',
+  Zaostrz_Wymagajace_Hospital: 'Hospitalizacja',
+  Zaostrz_Wymagajace_OIT: 'OIT',
+  Kreatynina: 'Kreatynina',
+  Pulsy: 'Pulsy sterydowe',
+  Czas_Sterydow: 'Czas sterydów',
+  Plazmaferezy: 'Plazmaferezy',
+  Eozynofilia_Krwi_Obwodowej_Wartosc: 'Eozynofilia',
+  Biopsja_Wynik: 'Biopsja',
+};
+
+function label(feature: string): string {
+  return FEATURE_LABELS[feature] || feature.replace(/_/g, ' ');
+}
+
 export function ShapTab({ patient, factors }: ShapTabProps) {
   const mutation = useExplainShap();
 
@@ -20,10 +48,10 @@ export function ShapTab({ patient, factors }: ShapTabProps) {
 
   const chartFactors = mutation.data
     ? [...mutation.data.risk_factors, ...mutation.data.protective_factors].map((f) => ({
-        feature: f.feature,
+        feature: label(f.feature),
         contribution: f.contribution,
       }))
-    : factors;
+    : factors.map((f) => ({ feature: label(f.feature), contribution: f.contribution }));
 
   return (
     <div>
