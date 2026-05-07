@@ -1,0 +1,134 @@
+{
+  "timestamp": "2026-04-22T00:26:34.426273",
+  "n_patients": 719,
+  "n_features_original": 20,
+  "n_features_kept": 19,
+  "features_removed": [
+    "Manifestacja_Nerki"
+  ],
+  "features_kept": [
+    "Wiek_rozpoznania",
+    "Opoznienie_Rozpoznia",
+    "Manifestacja_Miesno-Szkiel",
+    "Manifestacja_Skora",
+    "Manifestacja_Wzrok",
+    "Manifestacja_Sercowo-Naczyniowy",
+    "Manifestacja_Pokarmowy",
+    "Manifestacja_Moczowo-Plciowy",
+    "Manifestacja_Zajecie_CSN",
+    "Manifestacja_Neurologiczny",
+    "Liczba_Zajetych_Narzadow",
+    "Zaostrz_Wymagajace_Hospital",
+    "Zaostrz_Wymagajace_OIT",
+    "Kreatynina",
+    "Pulsy",
+    "Czas_Sterydow",
+    "Plazmaferezy",
+    "Eozynofilia_Krwi_Obwodowej_Wartosc",
+    "Biopsja_Wynik"
+  ],
+  "removal_votes": {
+    "Wiek_rozpoznania": 0,
+    "Opoznienie_Rozpoznia": 0,
+    "Manifestacja_Miesno-Szkiel": 1,
+    "Manifestacja_Skora": 0,
+    "Manifestacja_Wzrok": 1,
+    "Manifestacja_Sercowo-Naczyniowy": 1,
+    "Manifestacja_Pokarmowy": 0,
+    "Manifestacja_Nerki": 3,
+    "Manifestacja_Moczowo-Plciowy": 2,
+    "Manifestacja_Zajecie_CSN": 1,
+    "Manifestacja_Neurologiczny": 2,
+    "Liczba_Zajetych_Narzadow": 0,
+    "Zaostrz_Wymagajace_Hospital": 2,
+    "Zaostrz_Wymagajace_OIT": 0,
+    "Kreatynina": 0,
+    "Pulsy": 1,
+    "Czas_Sterydow": 0,
+    "Plazmaferezy": 2,
+    "Eozynofilia_Krwi_Obwodowej_Wartosc": 0,
+    "Biopsja_Wynik": 2
+  },
+  "ranking": [
+    {
+      "feature": "Zaostrz_Wymagajace_OIT",
+      "avg_importance": 0.7315
+    },
+    {
+      "feature": "Wiek_rozpoznania",
+      "avg_importance": 0.6404
+    },
+    {
+      "feature": "Manifestacja_Skora",
+      "avg_importance": 0.6178
+    },
+    {
+      "feature": "Manifestacja_Pokarmowy",
+      "avg_importance": 0.5601
+    },
+    {
+      "feature": "Kreatynina",
+      "avg_importance": 0.4568
+    },
+    {
+      "feature": "Manifestacja_Wzrok",
+      "avg_importance": 0.4487
+    },
+    {
+      "feature": "Czas_Sterydow",
+      "avg_importance": 0.4234
+    },
+    {
+      "feature": "Liczba_Zajetych_Narzadow",
+      "avg_importance": 0.3964
+    },
+    {
+      "feature": "Eozynofilia_Krwi_Obwodowej_Wartosc",
+      "avg_importance": 0.3732
+    },
+    {
+      "feature": "Opoznienie_Rozpoznia",
+      "avg_importance": 0.3652
+    },
+    {
+      "feature": "Pulsy",
+      "avg_importance": 0.3064
+    },
+    {
+      "feature": "Manifestacja_Zajecie_CSN",
+      "avg_importance": 0.2575
+    },
+    {
+      "feature": "Plazmaferezy",
+      "avg_importance": 0.2323
+    },
+    {
+      "feature": "Manifestacja_Sercowo-Naczyniowy",
+      "avg_importance": 0.2226
+    },
+    {
+      "feature": "Biopsja_Wynik",
+      "avg_importance": 0.222
+    },
+    {
+      "feature": "Manifestacja_Neurologiczny",
+      "avg_importance": 0.1821
+    },
+    {
+      "feature": "Manifestacja_Moczowo-Plciowy",
+      "avg_importance": 0.1582
+    },
+    {
+      "feature": "Zaostrz_Wymagajace_Hospital",
+      "avg_importance": 0.1458
+    },
+    {
+      "feature": "Manifestacja_Miesno-Szkiel",
+      "avg_importance": 0.1196
+    },
+    {
+      "feature": "Manifestacja_Nerki",
+      "avg_importance": 0.0526
+    }
+  ]
+}
