@@ -43,7 +43,7 @@ export function ShapTab({ patient, factors }: ShapTabProps) {
   const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'shap', num_features: 10, model_key: modelKey });
+    mutation.mutate({ patient, method: 'shap', num_features: 20, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient, modelKey]);
 

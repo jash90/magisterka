@@ -16,7 +16,7 @@ export function DalexTab({ patient, factors }: DalexTabProps) {
   const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'dalex', num_features: 10, model_key: modelKey });
+    mutation.mutate({ patient, method: 'dalex', num_features: 20, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient, modelKey]);
 
