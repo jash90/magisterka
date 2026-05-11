@@ -137,23 +137,33 @@ class SHAPExplainer:
             shap_values = self.explainer.shap_values(instance)
 
         # Dla klasyfikacji binarnej - weź wartości dla klasy pozytywnej
+        # XGBoost zwraca (n_samples, n_features) = (1, 20)
+        # Random Forest zwraca (n_samples, n_features, n_classes) = (1, 20, 2)
+        # LightGBM zwraca list[ndarray(n_samples, n_features)]
         if isinstance(shap_values, list):
-            shap_vals = shap_values[1][0]  # Klasa 1 (zgon), pierwsza instancja
+            # LightGBM: [class0_vals, class1_vals], each (1, n_features)
+            shap_vals = shap_values[1][0]  # Klasa 1, pierwsza instancja
             base_value = self.explainer.expected_value[1]
         elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
-            # Shape (1, n_features, n_classes) — pojedyncza instancja w batchu
+            # Random Forest: (1, n_features, n_classes)
             shap_vals = shap_values[0, :, 1]  # klasa 1, spłaszczone do (n_features,)
             base_value = self.explainer.expected_value
             if isinstance(base_value, np.ndarray) and base_value.ndim >= 1:
                 base_value = float(base_value[1])
         elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 2:
-            # Shape (n_features, n_classes)
-            shap_vals = shap_values[:, 1]
+            # XGBoost: (n_samples, n_features) = (1, 20)
+            shap_vals = shap_values[0]  # pierwsza (jedyna) instancja
             base_value = self.explainer.expected_value
-            if isinstance(base_value, np.ndarray) and base_value.ndim >= 1:
-                base_value = float(base_value[1])
+            if isinstance(base_value, np.ndarray):
+                base_value = float(base_value[0])
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 1:
+            # Rzadki przypadek: 1D shap values
+            shap_vals = shap_values
+            base_value = self.explainer.expected_value
+            if isinstance(base_value, np.ndarray):
+                base_value = float(base_value[0])
         else:
-            shap_vals = shap_values[0] if isinstance(shap_values[0], (int, float, np.floating)) else shap_values
+            shap_vals = np.array(shap_values).flatten()
             base_value = self.explainer.expected_value
             if isinstance(base_value, np.ndarray):
                 base_value = float(base_value[0])
@@ -169,13 +179,15 @@ class SHAPExplainer:
             probability_positive = float(pred)
 
         # Przygotuj wyjaśnienie
-        feature_impacts = list(zip(self.feature_names, shap_vals.tolist(), instance[0].tolist()))
+        # instance może być 1D (20,) lub 2D (1,20) — spłaszcz do 1D
+        instance_flat = instance.flatten() if isinstance(instance, np.ndarray) else np.array(instance).flatten()
+        feature_impacts = list(zip(self.feature_names, shap_vals.tolist(), instance_flat.tolist()))
         feature_impacts_sorted = sorted(feature_impacts, key=lambda x: abs(x[1]), reverse=True)
 
         explanation = {
             'shap_values': shap_vals.tolist(),
             'base_value': float(base_value),
-            'feature_values': instance[0].tolist(),
+            'feature_values': instance_flat.tolist(),
             'feature_names': self.feature_names,
             'prediction': prediction,
             'probability_positive': probability_positive,
