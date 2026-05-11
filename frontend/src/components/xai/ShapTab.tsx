@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useExplainShap } from '../../hooks/useApi';
 import { WaterfallChart } from '../charts/WaterfallChart';
+import { ModelSelector } from './ModelSelector';
 import { pl } from '../../i18n/pl';
 import type { PatientInput } from '../../api/types';
 import type { DemoFactor } from '../../lib/demo';
@@ -16,7 +17,6 @@ const FEATURE_LABELS: Record<string, string> = {
   Manifestacja_Miesno_Szkiel: 'Mięśniowo-szkieletowy',
   Manifestacja_Skora: 'Skóra',
   Manifestacja_Wzrok: 'Wzrok',
-  Manifestacja_Sercowo_Naczyniowy: 'Serce/naczynia',
   Manifestacja_Sercowo_Naczyniowy: 'Serce/naczynia',
   Manifestacja_Pokarmowy: 'Układ pokarmowy',
   Manifestacja_Nerki: 'Nerki',
@@ -40,11 +40,12 @@ function label(feature: string): string {
 
 export function ShapTab({ patient, factors }: ShapTabProps) {
   const mutation = useExplainShap();
+  const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'shap', num_features: 10 });
+    mutation.mutate({ patient, method: 'shap', num_features: 10, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patient]);
+  }, [patient, modelKey]);
 
   const chartFactors = mutation.data
     ? [...mutation.data.risk_factors, ...mutation.data.protective_factors].map((f) => ({
@@ -58,6 +59,8 @@ export function ShapTab({ patient, factors }: ShapTabProps) {
       <h3 className="mb-2 text-lg font-semibold text-gray-200">{pl.xai.shapTitle}</h3>
       <p className="mb-4 text-sm text-gray-400">{pl.xai.shapDesc}</p>
 
+      <ModelSelector value={modelKey} onChange={setModelKey} />
+
       {mutation.isPending && (
         <div className="flex h-64 items-center justify-center text-gray-400">Ładowanie wyjaśnienia SHAP...</div>
       )}
@@ -65,7 +68,7 @@ export function ShapTab({ patient, factors }: ShapTabProps) {
       <WaterfallChart factors={chartFactors} title="Wpływ czynników (SHAP)" />
 
       {mutation.isError && (
-        <p className="mt-2 text-xs text-yellow-400">Użyto danych demo (API SHAP niedostępne)</p>
+        <p className="mt-2 text-xs text-yellow-400">Błąd wyjaśnienia SHAP</p>
       )}
     </div>
   );

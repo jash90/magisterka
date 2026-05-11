@@ -146,6 +146,7 @@ export interface ExplanationRequest {
   patient: PatientInput;
   method: XAIMethod;
   num_features: number;
+  model_key?: string;
 }
 
 export interface BatchPatientInput {

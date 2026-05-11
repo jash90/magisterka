@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useExplainComparison } from '../../hooks/useApi';
+import { ModelSelector } from './ModelSelector';
 import { pl } from '../../i18n/pl';
 import type { PatientInput } from '../../api/types';
 import type { DemoFactor } from '../../lib/demo';
@@ -11,11 +12,12 @@ interface ComparisonTabProps {
 
 export function ComparisonTab({ patient, factors }: ComparisonTabProps) {
   const mutation = useExplainComparison();
+  const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'shap', num_features: 10 });
+    mutation.mutate({ patient, method: 'shap', num_features: 10, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patient]);
+  }, [patient, modelKey]);
 
   const sorted = [...factors].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
   const shapRanking = mutation.data?.individual_rankings?.SHAP ?? sorted.slice(0, 5).map((f) => f.feature);
@@ -24,6 +26,8 @@ export function ComparisonTab({ patient, factors }: ComparisonTabProps) {
   return (
     <div>
       <h3 className="mb-4 text-lg font-semibold text-gray-200">{pl.xai.compTitle}</h3>
+
+      <ModelSelector value={modelKey} onChange={setModelKey} />
 
       <div className="grid gap-6 md:grid-cols-2">
         <div>
@@ -59,7 +63,7 @@ export function ComparisonTab({ patient, factors }: ComparisonTabProps) {
       </div>
 
       {mutation.isPending && <p className="mt-2 text-xs text-gray-500">Ładowanie porównania...</p>}
-      {mutation.isError && <p className="mt-2 text-xs text-yellow-400">Użyto danych demo</p>}
+      {mutation.isError && <p className="mt-2 text-xs text-yellow-400">Błąd porównania</p>}
     </div>
   );
 }

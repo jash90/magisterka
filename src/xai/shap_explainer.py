@@ -140,11 +140,23 @@ class SHAPExplainer:
         if isinstance(shap_values, list):
             shap_vals = shap_values[1][0]  # Klasa 1 (zgon), pierwsza instancja
             base_value = self.explainer.expected_value[1]
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+            # Shape (1, n_features, n_classes) — pojedyncza instancja w batchu
+            shap_vals = shap_values[0, :, 1]  # klasa 1, spłaszczone do (n_features,)
+            base_value = self.explainer.expected_value
+            if isinstance(base_value, np.ndarray) and base_value.ndim >= 1:
+                base_value = float(base_value[1])
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 2:
+            # Shape (n_features, n_classes)
+            shap_vals = shap_values[:, 1]
+            base_value = self.explainer.expected_value
+            if isinstance(base_value, np.ndarray) and base_value.ndim >= 1:
+                base_value = float(base_value[1])
         else:
-            shap_vals = shap_values[0]
+            shap_vals = shap_values[0] if isinstance(shap_values[0], (int, float, np.floating)) else shap_values
             base_value = self.explainer.expected_value
             if isinstance(base_value, np.ndarray):
-                base_value = base_value[0]
+                base_value = float(base_value[0])
 
         # Predykcja
         if hasattr(self.model, 'predict_proba'):
@@ -221,11 +233,17 @@ class SHAPExplainer:
         if isinstance(shap_values, list):
             shap_vals = np.array(shap_values[1])
             base_value = self.explainer.expected_value[1]
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+            # Random Forest batch: (n_samples, n_features, n_classes)
+            shap_vals = shap_values[:, :, 1]
+            base_value = self.explainer.expected_value
+            if isinstance(base_value, np.ndarray) and base_value.ndim >= 1:
+                base_value = float(base_value[1])
         else:
             shap_vals = np.array(shap_values)
             base_value = self.explainer.expected_value
             if isinstance(base_value, np.ndarray):
-                base_value = base_value[0]
+                base_value = float(base_value[0])
 
         return {
             'shap_values': shap_vals,

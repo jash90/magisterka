@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useExplainDalex } from '../../hooks/useApi';
 import { HorizontalBarChart } from '../charts/HorizontalBarChart';
 import { WaterfallChart } from '../charts/WaterfallChart';
-import { pl } from '../../i18n/pl';
+import { ModelSelector } from './ModelSelector';
 import type { PatientInput } from '../../api/types';
 import type { DemoFactor } from '../../lib/demo';
 
@@ -13,11 +13,12 @@ interface DalexTabProps {
 
 export function DalexTab({ patient, factors }: DalexTabProps) {
   const mutation = useExplainDalex();
+  const [modelKey, setModelKey] = useState('xgboost');
 
   useEffect(() => {
-    mutation.mutate({ patient, method: 'dalex', num_features: 10 }); // URL path doesn't matter, method is unused by backend
+    mutation.mutate({ patient, method: 'dalex', num_features: 10, model_key: modelKey });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patient]);
+  }, [patient, modelKey]);
 
   const bdFactors = mutation.data
     ? [
@@ -36,6 +37,8 @@ export function DalexTab({ patient, factors }: DalexTabProps) {
         — rozkłada predykcję na wkłady poszczególnych cech, pokazując jak każda z nich wpłynęła na wynik.
         Dodatkowo wyświetlana jest globalna ważność cech obliczona metodą permutacji.
       </p>
+
+      <ModelSelector value={modelKey} onChange={setModelKey} />
 
       {mutation.isPending && (
         <div className="flex h-64 items-center justify-center text-gray-400">Ładowanie wyjaśnienia DALEX...</div>

@@ -3,7 +3,6 @@ import { useExplainEbm } from '../../hooks/useApi';
 import { HorizontalBarChart } from '../charts/HorizontalBarChart';
 import { WaterfallChart } from '../charts/WaterfallChart';
 import { RiskBadge } from '../common/RiskBadge';
-import { pl } from '../../i18n/pl';
 import type { PatientInput } from '../../api/types';
 import type { DemoFactor } from '../../lib/demo';
 
@@ -34,9 +33,16 @@ export function EbmTab({ patient, factors }: EbmTabProps) {
       <p className="mb-4 text-sm text-gray-400">
         EBM to inherentnie interpretowalny model bazujący na Generalized Additive Models (GAM).
         Łączy dokładność gradient boostingu z pełną transparentnością — każda cecha ma swoją 
-        wyraźną funkcję kształtu. Poniżej: lokalny wkład cech dla tego pacjenta oraz globalna 
-        ważność cech z modelu EBM wytrenowanego na tych samych danych.
+        wyraźną funkcję kształtu. EBM jest wytrenowany niezależnie na tych samych danych
+        (719 pacjentów, 20 cech) — jego wynik to predykcja własnego modelu, nie XGBoost/RF/LightGBM.
       </p>
+
+      <div className="mb-4 flex items-center gap-2 rounded border border-gray-600 bg-gray-800/30 px-3 py-2">
+        <span className="text-xs text-gray-500">Model:</span>
+        <span className="rounded bg-purple-600/30 px-2 py-0.5 text-xs font-medium text-purple-300">
+          EBM (własny model GAM)
+        </span>
+      </div>
 
       {mutation.isPending && (
         <div className="flex h-64 items-center justify-center text-gray-400">Trenowanie modelu EBM (może potrwać kilkanaście sekund)...</div>
