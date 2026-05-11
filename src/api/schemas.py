@@ -237,6 +237,27 @@ class ChatResponse(BaseModel):
     prediction_data: Optional["AgentPredictionData"] = None
 
 
+class DALEXExplanation(BaseModel):
+    """Wyjaśnienie DALEX Break Down."""
+    method: str = "DALEX"
+    intercept: float
+    prediction: float
+    risk_factors: List[Dict[str, Any]] = Field(default_factory=list)
+    protective_factors: List[Dict[str, Any]] = Field(default_factory=list)
+    variable_importance: Optional[Dict[str, float]] = None
+
+
+class EBMExplanation(BaseModel):
+    """Wyjaśnienie EBM (global + local)."""
+    method: str = "EBM"
+    prediction: int
+    probability: float
+    risk_level: RiskLevel
+    global_importance: Dict[str, float] = Field(default_factory=dict)
+    local_contributions: List[Dict[str, Any]] = Field(default_factory=list)
+    interactions: List[str] = Field(default_factory=list)
+
+
 class ComparisonResult(BaseModel):
     """Wynik porównania metod XAI."""
     methods_compared: List[str]

@@ -50,6 +50,18 @@ export function useExplainComparison() {
   });
 }
 
+export function useExplainDalex() {
+  return useMutation({
+    mutationFn: (req: ExplanationRequest) => api.explainDalex(req),
+  });
+}
+
+export function useExplainEbm() {
+  return useMutation({
+    mutationFn: (req: ExplanationRequest) => api.explainEbm(req),
+  });
+}
+
 export function useChat() {
   return useMutation({
     mutationFn: (req: ChatRequest) => api.chat(req),
