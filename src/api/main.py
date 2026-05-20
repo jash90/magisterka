@@ -8,6 +8,7 @@ wyjaśnień XAI i agenta konwersacyjnego.
 import os
 import sys
 import time
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
@@ -29,7 +30,11 @@ from .schemas import (
     PatientInput, PredictionOutput, SHAPExplanation, LIMEExplanation,
     PatientExplanation, ModelInfo, GlobalImportance, HealthCheckResponse,
     ChatRequest, ChatResponse, ExplanationRequest, PatientExplanationRequest,
-    ComparisonResult, ErrorResponse, RiskLevel, XAIMethod, HealthLiteracyLevel,
+    ComparisonResult, KrishnaComparisonResult,
+    CalibrationResponse, ModelCalibration, CalibrationCurvePoint,
+    DecisionCurveResponse, ModelDCA, NetBenefitPoint,
+    CounterfactualResponse, CounterfactualExample, CounterfactualChange, CounterfactualMetrics,
+    ErrorResponse, RiskLevel, XAIMethod, HealthLiteracyLevel,
     patient_to_array, get_risk_level_from_probability, patients_to_matrix,
     # Batch schemas
     BatchPatientInput, BatchPredictionOutput, BatchPatientResult,
@@ -86,6 +91,8 @@ class AppState:
     def __init__(self):
         self.model = None
         self.feature_names = None
+        self.model_path: Optional[Path] = None
+        self.model_metadata: Dict[str, Any] = {}
         self.lime_explainer = None
         self.shap_explainer = None
         self.rag_pipeline = None
@@ -118,29 +125,27 @@ class AppState:
             return "unavailable"
 
     def get_global_importance(self) -> Dict[str, float]:
-        """Pobierz global feature importance (z cache)."""
+        """Pobierz global feature importance — obliczane dynamicznie z SHAP."""
         if self._global_importance_cache is None:
-            self._global_importance_cache = {
-                "Wiek": 0.15,
-                "Manifestacja_Nerki": 0.12,
-                "Zaostrz_Wymagajace_OIT": 0.11,
-                "Liczba_Zajetych_Narzadow": 0.10,
-                "Manifestacja_Sercowo-Naczyniowy": 0.09,
-                "Kreatynina": 0.08,
-                "Max_CRP": 0.07,
-                "Dializa": 0.06,
-                "Manifestacja_Zajecie_CSN": 0.05,
-                "Plazmaferezy": 0.04,
-                "Manifestacja_Neurologiczny": 0.03,
-                "Manifestacja_Pokarmowy": 0.02,
-                "Plec": 0.02,
-                "Sterydy_Dawka_g": 0.02,
-                "Czas_Sterydow": 0.01,
-                "Powiklania_Serce/pluca": 0.02,
-                "Powiklania_Infekcja": 0.02,
-                "Wiek_rozpoznania": 0.01,
-                "Opoznienie_Rozpoznia": 0.01
-            }
+            if self.shap_explainer is not None:
+                try:
+                    X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+                    self._global_importance_cache = self.shap_explainer.get_global_importance(X_bg)
+                    logger.info("Global importance obliczona z SHAP")
+                except Exception as e:
+                    logger.warning(f"Nie udało się obliczyć SHAP importance: {e}")
+            # Fallback: feature importances z modelu (dla drzewiastych)
+            if self._global_importance_cache is None and self.model is not None:
+                if hasattr(self.model, 'feature_importances_') and self.feature_names:
+                    self._global_importance_cache = dict(zip(
+                        self.feature_names,
+                        self.model.feature_importances_.tolist()
+                    ))
+                    logger.info("Global importance z feature_importances_")
+                else:
+                    self._global_importance_cache = {}
+            if self._global_importance_cache is None:
+                self._global_importance_cache = {}
         return self._global_importance_cache
 
     def load_models(self, model_path: str, feature_names_path: str):
@@ -148,6 +153,7 @@ class AppState:
         import joblib
 
         try:
+            self.model_path = Path(model_path)
             # Wczytaj model
             self.model = joblib.load(model_path)
             logger.info(f"Model wczytany z {model_path}")
@@ -156,6 +162,7 @@ class AppState:
             with open(feature_names_path, 'r') as f:
                 self.feature_names = json.load(f)
             logger.info(f"Wczytano {len(self.feature_names)} nazw cech")
+            self.model_metadata = _load_primary_model_metadata()
 
             self.is_loaded = True
 
@@ -178,26 +185,35 @@ class AppState:
         try:
             X_background_path = models_dir / "X_background.joblib"
             X_train_path = models_dir / "X_train.joblib"
+            if self.model_path and self.model_path.name == "best_single_model.joblib":
+                X_background_path = models_dir / "best_single_X_background.joblib"
+                X_train_path = models_dir / "best_single_X_train.joblib"
 
             if X_background_path.exists():
                 X_background = joblib.load(X_background_path)
-                self.shap_explainer = SHAPExplainer(
-                    model=self.model,
-                    X_background=X_background,
-                    feature_names=self.feature_names
-                )
-                logger.info("SHAPExplainer zainicjalizowany z prawdziwymi danymi")
+                if X_background.shape[1] == len(self.feature_names):
+                    self.shap_explainer = SHAPExplainer(
+                        model=self.model,
+                        X_background=X_background,
+                        feature_names=self.feature_names
+                    )
+                    logger.info("SHAPExplainer zainicjalizowany z prawdziwymi danymi")
+                else:
+                    logger.warning("Pominięto SHAP: X_background nie pasuje do liczby cech modelu")
             else:
                 logger.warning("X_background.joblib nie znaleziony — SHAP w trybie demo")
 
             if X_train_path.exists():
                 X_train = joblib.load(X_train_path)
-                self.lime_explainer = LIMEExplainer(
-                    model=self.model,
-                    X_train=X_train,
-                    feature_names=self.feature_names
-                )
-                logger.info("LIMEExplainer zainicjalizowany z prawdziwymi danymi")
+                if X_train.shape[1] == len(self.feature_names):
+                    self.lime_explainer = LIMEExplainer(
+                        model=self.model,
+                        X_train=X_train,
+                        feature_names=self.feature_names
+                    )
+                    logger.info("LIMEExplainer zainicjalizowany z prawdziwymi danymi")
+                else:
+                    logger.warning("Pominięto LIME: X_train nie pasuje do liczby cech modelu")
             else:
                 logger.warning("X_train.joblib nie znaleziony — LIME w trybie demo")
 
@@ -210,9 +226,55 @@ class AppState:
 app_state = AppState()
 
 
+def _load_primary_model_metadata() -> Dict[str, Any]:
+    """Load metadata describing the preferred production model."""
+    best_single_path = Path("models/saved/best_single_model.json")
+    if best_single_path.exists():
+        try:
+            with open(best_single_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            metadata.setdefault("metadata_path", str(best_single_path))
+            return metadata
+        except Exception as e:
+            logger.warning(f"Nie udało się wczytać best_single_model.json: {e}")
+
+    best_model_path = Path("models/saved/best_model.json")
+    if best_model_path.exists():
+        try:
+            with open(best_model_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            metadata.setdefault("metadata_path", str(best_model_path))
+            return metadata
+        except Exception as e:
+            logger.warning(f"Nie udało się wczytać best_model.json: {e}")
+
+    return {}
+
+
+def _resolve_primary_model_paths() -> Tuple[str, str]:
+    """Resolve startup model paths from explicit env vars or training metadata."""
+    env_model_path = os.getenv("MODEL_PATH")
+    env_features_path = os.getenv("FEATURE_NAMES_PATH")
+    if env_model_path:
+        return env_model_path, env_features_path or "models/saved/feature_names.json"
+
+    metadata = _load_primary_model_metadata()
+    artifact = metadata.get("api_primary_model_artifact") or metadata.get("artifact")
+    features = (
+        metadata.get("api_primary_feature_names_path")
+        or metadata.get("feature_names_path")
+        or "feature_names.json"
+    )
+
+    if artifact:
+        return str(Path("models/saved") / artifact), str(Path("models/saved") / features)
+
+    return "models/saved/best_model.joblib", env_features_path or "models/saved/feature_names.json"
+
+
 def _load_model_by_key(model_key: str):
     """Załaduj model z dysku na podstawie klucza (xgboost/random_forest/lightgbm)."""
-    if model_key == "xgboost" or model_key is None:
+    if model_key in {"primary", None}:
         if app_state.model is None:
             raise HTTPException(status_code=503, detail="Model nie jest wczytany")
         return app_state.model
@@ -237,9 +299,9 @@ async def startup_event():
     """Zdarzenie uruchomienia aplikacji."""
     logger.info("Uruchamianie API Vasculitis XAI...")
 
-    # Próba wczytania modeli
-    model_path = os.getenv("MODEL_PATH", "models/saved/best_model.joblib")
-    feature_names_path = os.getenv("FEATURE_NAMES_PATH", "models/saved/feature_names.json")
+    # Próba wczytania modeli. Jeśli env nie nadpisuje ścieżki, preferuj
+    # najlepszy pojedynczy model zapisany przez scripts/train_model.py --single-best.
+    model_path, feature_names_path = _resolve_primary_model_paths()
 
     if Path(model_path).exists() and Path(feature_names_path).exists():
         app_state.load_models(model_path, feature_names_path)
@@ -384,15 +446,27 @@ async def predict(patient: PatientInput):
 # ============================================================================
 
 _MODEL_FILES = {
+    "best_single": "best_single_model.joblib",
     "xgboost": "best_model.joblib",
     "random_forest": "random_forest_model.joblib",
     "lightgbm": "lightgbm_model.joblib",
+    "gradient_boosting": "gradient_boosting_model.joblib",
+    "logistic_regression": "logistic_regression_model.joblib",
+    "svm": "svm_model.joblib",
+    "neural_network": "neural_network_model.joblib",
+    "catboost": "catboost_model.joblib",
 }
 
 _MODEL_LABELS = {
+    "best_single": "Best Single Model",
     "xgboost": "XGBoost",
     "random_forest": "Random Forest",
     "lightgbm": "LightGBM",
+    "gradient_boosting": "Gradient Boosting",
+    "logistic_regression": "Logistic Regression",
+    "svm": "SVM",
+    "neural_network": "Neural Network (MLP)",
+    "catboost": "CatBoost",
 }
 
 
@@ -439,7 +513,7 @@ async def predict_all_models(patient: PatientInput):
         models=results,
         ensemble_probability=ensemble_prob,
         ensemble_risk_level=get_risk_level_from_probability(ensemble_prob),
-        primary_model="XGBoost",
+        primary_model=app_state.model_metadata.get("model_type", "primary"),
     )
 
 
@@ -887,6 +961,98 @@ async def explain_comparison(request: ExplanationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/explain/comparison/krishna", response_model=KrishnaComparisonResult, tags=["XAI"])
+async def explain_comparison_krishna(request: ExplanationRequest):
+    """Pełny panel metryk porównania XAI: Krishna et al. 2024 + RBO + Weighted Kendall.
+
+    Liczy 6 metryk Krishna et al. (Feature/Rank/Sign/Signed-Rank/Pairwise-Rank
+    Agreement) przy k=5 i k=10, RBO_min (Webber et al. 2010) z p=0.9, oraz
+    Weighted Kendall tau (Vigna 2015) dla każdej pary metod XAI dostępnych
+    dla wybranego modelu.
+    """
+    try:
+        model = _load_model_by_key(request.model_key)
+        features = patient_to_array(request.patient, app_state.feature_names)
+        instance = np.array(features)
+        num_features = max(request.num_features or 10, 10)
+
+        from src.xai.shap_explainer import SHAPExplainer
+        from src.xai.lime_explainer import LIMEExplainer
+        from src.xai.dalex_wrapper import DALEXWrapper
+        from src.xai.comparison import XAIComparison
+
+        explanations: Dict[str, Dict[str, Any]] = {}
+
+        # SHAP
+        try:
+            if (request.model_key in ("xgboost", None)) and app_state.shap_explainer is not None:
+                explanations["SHAP"] = app_state.shap_explainer.explain_instance(instance)
+            else:
+                X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+                shap_expl = SHAPExplainer(model=model, X_background=X_bg, feature_names=app_state.feature_names)
+                explanations["SHAP"] = shap_expl.explain_instance(instance)
+        except Exception as e:
+            logger.warning(f"SHAP nie powiodło się: {e}")
+
+        # LIME
+        try:
+            if (request.model_key in ("xgboost", None)) and app_state.lime_explainer is not None:
+                lime_obj = app_state.lime_explainer
+            else:
+                X_train = joblib.load(Path("models/saved/X_train.joblib"))
+                lime_obj = LIMEExplainer(model=model, X_train=X_train, feature_names=app_state.feature_names)
+            explanations["LIME"] = lime_obj.explain_instance(instance, num_features=num_features)
+        except Exception as e:
+            logger.warning(f"LIME nie powiodło się: {e}")
+
+        # DALEX (break-down)
+        try:
+            X_bg = joblib.load(Path("models/saved/X_background.joblib"))
+            y_bg = joblib.load(Path("models/saved/y_background.joblib"))
+            dalex_w = DALEXWrapper(
+                model=model, X=X_bg, y=y_bg,
+                feature_names=app_state.feature_names,
+                label=_MODEL_LABELS.get(request.model_key or "xgboost", "Model"),
+            )
+            bd = dalex_w.explain_instance_break_down(instance)
+            if bd.get("contributions"):
+                explanations["DALEX"] = bd
+        except Exception as e:
+            logger.warning(f"DALEX nie powiodło się: {e}")
+
+        if len(explanations) < 2:
+            raise HTTPException(
+                status_code=503,
+                detail="Krishna panel wymaga co najmniej 2 sprawnych metod XAI dla danego modelu.",
+            )
+
+        comp = XAIComparison(feature_names=app_state.feature_names)
+        result = comp.compute_krishna_panel(explanations, ks=(5, 10), rbo_p=0.9)
+
+        # Convert DataFrame panels to nested dicts for JSON
+        panels_serialized: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for metric_name, df in result["panels"].items():
+            panels_serialized[metric_name] = {
+                row: {col: float(df.loc[row, col]) for col in df.columns}
+                for row in df.index
+            }
+
+        return KrishnaComparisonResult(
+            methods_compared=list(explanations.keys()),
+            ks=result["config"]["ks"],
+            rbo_p=result["config"]["rbo_p"],
+            panels=panels_serialized,
+            summary={k: float(v) for k, v in result["summary"].items()},
+            rankings={m: list(r) for m, r in result["rankings"].items()},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Błąd Krishna comparison: {e}")
+        raise HTTPException(status_code=500, detail="Błąd obliczenia panelu Krishna")
+
+
 # ============================================================================
 # DALEX EXPLANATION
 # ============================================================================
@@ -980,8 +1146,8 @@ def _ensure_ebm():
 
         ebm = EBMExplainer(
             feature_names=feature_names,
-            max_rounds=5000,
-            interactions=10,
+            max_rounds=500,
+            interactions=0,
             random_state=42,
         )
         X_df = pd.DataFrame(X_train, columns=feature_names)
@@ -1005,7 +1171,9 @@ async def explain_ebm(request: ExplanationRequest):
     interpretowalnego modelu GAM.
     """
     try:
-        ebm = _ensure_ebm()
+        import asyncio
+        loop = asyncio.get_event_loop()
+        ebm = await loop.run_in_executor(None, _ensure_ebm)
         if ebm is None:
             raise HTTPException(status_code=503, detail="Model EBM niedostępny")
 
@@ -1051,21 +1219,74 @@ async def explain_for_patient(request: PatientExplanationRequest):
     Wygeneruj wyjaśnienie zrozumiałe dla pacjenta.
 
     Dostosowuje język i poziom szczegółowości do poziomu health literacy.
+    Używa prawdziwych wartości SHAP, jeśli model jest załadowany.
     """
     try:
         prediction = await predict(request.patient)
-        demo_exp = get_demo_explanation(request.patient)
 
         # Tłumaczenia cech
         translations = {
-            "Wiek": "Twój wiek",
+            "Wiek_rozpoznania": "Twój wiek w momencie rozpoznania",
+            "Opoznienie_Rozpoznia": "Czas od objawów do diagnozy",
             "Manifestacja_Nerki": "Stan nerek",
-            "Manifestacja_Sercowo_Naczyniowy": "Stan układu krążenia",
-            "Zaostrz_Wymagajace_OIT": "Przebyte poważne zaostrzenia",
+            "Manifestacja_Sercowo-Naczyniowy": "Stan układu krążenia",
+            "Manifestacja_Zajecie_CSN": "Zajęcie ośrodkowego układu nerwowego",
+            "Manifestacja_Neurologiczny": "Objawy neurologiczne",
+            "Manifestacja_Pokarmowy": "Stan układu pokarmowego",
+            "Manifestacja_Skora": "Zmiany skórne",
+            "Manifestacja_Wzrok": "Zajęcie narządu wzroku",
+            "Manifestacja_Miesno-Szkiel": "Zajęcie układu mięśniowo-szkieletowego",
+            "Manifestacja_Moczowo-Plciowy": "Zajęcie układu moczowo-płciowego",
+            "Zaostrz_Wymagajace_OIT": "Przebyte poważne zaostrzenia (OIT)",
+            "Zaostrz_Wymagajace_Hospital": "Zaostrzenia wymagające hospitalizacji",
             "Liczba_Zajetych_Narzadow": "Liczba dotkniętych narządów",
-            "Kreatynina": "Wskaźnik czynności nerek",
-            "Max_CRP": "Poziom stanu zapalnego"
+            "Kreatynina": "Wskaźnik czynności nerek (kreatynina)",
+            "Plazmaferezy": "Przebyte zabiegi oczyszczania krwi",
+            "Czas_Sterydow": "Czas leczenia sterydami",
+            "Pulsy": "Leczenie pulsami sterydowymi",
+            "Eozynofilia_Krwi_Obwodowych_Wartosc": "Poziom eozynofili we krwi",
+            "Biopsja_Wynik": "Wynik biopsji",
         }
+
+        # Spróbuj uzyskać prawdziwe wyjaśnienie SHAP
+        risk_factors = []
+        protective_factors = []
+        base_value = 0.0
+        used_real_shap = False
+
+        if app_state.shap_explainer is not None and app_state.feature_names:
+            try:
+                features = patient_to_array(request.patient, app_state.feature_names)
+                instance = np.array(features)
+                shap_exp = app_state.shap_explainer.explain_instance(instance)
+
+                base_value = shap_exp.get('base_value', 0.0)
+                used_real_shap = True
+
+                # Map risk/protective from real SHAP
+                for fi in shap_exp.get('risk_factors', [])[:5]:
+                    risk_factors.append({
+                        "feature": fi["feature"],
+                        "value": fi.get("feature_value", 0),
+                        "contribution": fi.get("shap_value", 0),
+                    })
+
+                for fi in shap_exp.get('protective_factors', [])[:5]:
+                    protective_factors.append({
+                        "feature": fi["feature"],
+                        "value": fi.get("feature_value", 0),
+                        "contribution": fi.get("shap_value", 0),
+                    })
+
+            except Exception as e:
+                logger.warning(f"SHAP explanation failed for patient: {e}")
+
+        # Fallback na demo jeśli SHAP niedostępny
+        if not used_real_shap:
+            demo_exp = get_demo_explanation(request.patient)
+            risk_factors = demo_exp.get("risk_factors", [])
+            protective_factors = demo_exp.get("protective_factors", [])
+            base_value = demo_exp.get("base_value", 0.0)
 
         # Poziom ryzyka
         if prediction.probability < 0.3:
@@ -1075,14 +1296,15 @@ async def explain_for_patient(request: PatientExplanationRequest):
         else:
             risk_desc = "Analiza wskazuje na podwyższone ryzyko. Ważna jest regularna opieka lekarska."
 
+        # Tłumacz nazwy cech na język pacjenta
         main_concerns = [
             translations.get(rf["feature"], rf["feature"])
-            for rf in demo_exp["risk_factors"][:3]
+            for rf in risk_factors[:3]
         ]
 
         positive_factors = [
             translations.get(pf["feature"], pf["feature"])
-            for pf in demo_exp["protective_factors"][:3]
+            for pf in protective_factors[:3]
         ]
 
         return PatientExplanation(
@@ -1093,8 +1315,10 @@ async def explain_for_patient(request: PatientExplanationRequest):
             recommendations="Zalecamy omówienie tych wyników z lekarzem prowadzącym.",
             technical_summary={
                 "probability": prediction.probability,
-                "n_risk_factors": len(demo_exp["risk_factors"]),
-                "n_protective_factors": len(demo_exp["protective_factors"])
+                "n_risk_factors": len(risk_factors),
+                "n_protective_factors": len(protective_factors),
+                "base_value": base_value,
+                "method": "SHAP" if used_real_shap else "demo"
             } if request.health_literacy != HealthLiteracyLevel.BASIC else None,
             disclaimer="To narzędzie ma charakter informacyjny i nie zastępuje porady lekarza."
         )
@@ -1110,25 +1334,25 @@ async def get_global_importance():
     Pobierz globalną ważność cech.
 
     Zwraca ranking cech według ich wpływu na predykcje modelu.
+    Wartości obliczane dynamicznie z SHAP (lub feature_importances_ jako fallback).
     """
-    # Demo importance
-    importance = {
-        "Wiek": 0.15,
-        "Manifestacja_Nerki": 0.12,
-        "Zaostrz_Wymagajace_OIT": 0.11,
-        "Liczba_Zajetych_Narzadow": 0.10,
-        "Manifestacja_Sercowo-Naczyniowy": 0.09,
-        "Kreatynina": 0.08,
-        "Max_CRP": 0.07,
-        "Dializa": 0.06,
-        "Manifestacja_Zajecie_CSN": 0.05,
-        "Plazmaferezy": 0.04
-    }
+    importance = app_state.get_global_importance()
+
+    if not importance:
+        # Brak modelu — zwróć puste dane
+        return GlobalImportance(
+            feature_importance={},
+            top_features=[],
+            method="Brak załadowanego modelu",
+            n_samples=0
+        )
+
+    method = "SHAP TreeExplainer" if app_state.shap_explainer else "Feature Importances (tree-based)"
 
     return GlobalImportance(
         feature_importance=importance,
         top_features=list(importance.keys()),
-        method="SHAP TreeExplainer (demo)",
+        method=method,
         n_samples=100
     )
 
@@ -1138,22 +1362,444 @@ async def get_model_info():
     """
     Pobierz informacje o modelu.
 
-    Zwraca metadane modelu i metryki wydajności.
+    Zwraca metadane modelu i metryki wydajności z pliku evaluation_report.json.
     """
+    metadata = app_state.model_metadata or _load_primary_model_metadata()
+    model_type = metadata.get("model_type") or ("Primary Model" if app_state.is_loaded else "Demo Model")
+    n_features = len(app_state.feature_names) if app_state.feature_names else 20
+    feature_names = app_state.feature_names or []
+    training_date = metadata.get("timestamp", "")[:10] if metadata.get("timestamp") else None
+    performance_metrics = {
+        "auc_roc": 0.0,
+        "sensitivity": 0.0,
+        "specificity": 0.0,
+        "ppv": 0.0,
+        "npv": 0.0
+    }
+
+    if metadata.get("auc_roc_mean") is not None:
+        performance_metrics = {
+            "auc_roc": round(metadata.get("auc_roc_mean", 0), 4),
+            "auc_roc_std": round(metadata.get("auc_roc_std", 0), 4),
+            "auc_pr": round(metadata.get("auc_pr_mean", 0), 4),
+            "sensitivity": round(metadata.get("sensitivity_mean", 0), 4),
+            "specificity": round(metadata.get("specificity_mean", 0), 4),
+        }
+
+    # Wczytaj metryki z evaluation_report.json
+    if metadata.get("auc_roc_mean") is None:
+        try:
+            eval_report_path = Path("models/saved/evaluation_report.json")
+            if eval_report_path.exists():
+                with open(eval_report_path, 'r', encoding='utf-8') as f:
+                    eval_data = json.load(f)
+                preferred_key = (
+                    metadata.get("single_best_model_type")
+                    or metadata.get("best_model_type_by_nested_cv")
+                    or "xgboost"
+                )
+                model_result = eval_data.get(preferred_key, eval_data.get("xgboost", eval_data.get("best", None)))
+                if model_result:
+                    metrics = model_result.get("metrics", {})
+                    performance_metrics = {
+                        "auc_roc": round(metrics.get("auc_roc", 0), 4),
+                        "sensitivity": round(metrics.get("sensitivity", 0), 4),
+                        "specificity": round(metrics.get("specificity", 0), 4),
+                        "ppv": round(metrics.get("ppv", 0), 4),
+                        "npv": round(metrics.get("npv", 0), 4),
+                    }
+        except Exception as e:
+            logger.warning(f"Nie udało się wczytać evaluation_report.json: {e}")
+
     return ModelInfo(
-        model_type="XGBoostClassifier" if app_state.is_loaded else "Demo Model",
-        n_features=len(app_state.feature_names) if app_state.feature_names else 20,
-        feature_names=app_state.feature_names or ["Wiek", "Plec", "Manifestacja_Nerki", "..."],
-        training_date="2024-01-15" if app_state.is_loaded else None,
-        performance_metrics={
-            "auc_roc": 0.85,
-            "sensitivity": 0.82,
-            "specificity": 0.78,
-            "ppv": 0.65,
-            "npv": 0.90
-        },
+        model_type=model_type,
+        n_features=n_features,
+        feature_names=feature_names if feature_names else ["Model nie załadowany"],
+        training_date=training_date,
+        performance_metrics=performance_metrics,
         version="1.0.0"
     )
+
+
+# ============================================================================
+# MODEL EVALUATION & CHARTS ENDPOINTS
+# ============================================================================
+
+@app.get("/model/evaluation", tags=["Model"])
+async def get_model_evaluation():
+    """
+    Pobierz metryki ewaluacji wszystkich modeli.
+
+    Zwraca pełne metryki medyczne (AUC, Sensitivity, Specificity, PPV, NPV, Brier Score)
+    dla wszystkich wytrenowanych modeli z evaluation_report.json.
+    """
+    eval_report_path = Path("models/saved/evaluation_report.json")
+    if not eval_report_path.exists():
+        raise HTTPException(status_code=404, detail="Plik evaluation_report.json nie istnieje. Uruchom scripts/train_model.py")
+
+    try:
+        with open(eval_report_path, 'r', encoding='utf-8') as f:
+            eval_data = json.load(f)
+
+        # Przekształć do formy przyjaznej dla frontend
+        result = {}
+        for model_name, model_result in eval_data.items():
+            metrics = model_result.get("metrics", {})
+            result[model_name] = {
+                "auc_roc": round(metrics.get("auc_roc", 0), 4),
+                "auc_pr": round(metrics.get("auc_pr", 0), 4),
+                "sensitivity": round(metrics.get("sensitivity", 0), 4),
+                "specificity": round(metrics.get("specificity", 0), 4),
+                "ppv": round(metrics.get("ppv", 0), 4),
+                "npv": round(metrics.get("npv", 0), 4),
+                "f1": round(metrics.get("f1", 0), 4),
+                "accuracy": round(metrics.get("accuracy", 0), 4),
+                "brier_score": round(metrics.get("brier_score", 0), 4),
+                "mcc": round(metrics.get("mcc", 0), 4),
+                "confusion_matrix": {
+                    "tp": metrics.get("true_positives", 0),
+                    "tn": metrics.get("true_negatives", 0),
+                    "fp": metrics.get("false_positives", 0),
+                    "fn": metrics.get("false_negatives", 0),
+                }
+            }
+
+        return {"models": result}
+
+    except Exception as e:
+        logger.error(f"Błąd wczytywania evaluation_report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/model/comparison", tags=["Model"])
+async def get_model_comparison():
+    """
+    Porównanie wszystkich modeli.
+
+    Zwraca DataFrame porównania modeli z model_comparison.json.
+    """
+    comparison_path = Path("models/saved/model_comparison.json")
+    if not comparison_path.exists():
+        raise HTTPException(status_code=404, detail="Plik model_comparison.json nie istnieje. Uruchom scripts/train_model.py")
+
+    try:
+        with open(comparison_path, 'r', encoding='utf-8') as f:
+            comparison_data = json.load(f)
+        return {"comparison": comparison_data}
+    except Exception as e:
+        logger.error(f"Błąd wczytywania model_comparison: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/model/charts/roc", tags=["Model"])
+async def get_roc_curves():
+    """
+    Dane do wykresów ROC dla wszystkich modeli.
+
+    Zwraca fpr, tpr, auc dla każdego modelu — gotowe do narysowania krzywych ROC.
+    Wymaga zapisanych X_test.joblib i y_test.joblib.
+    """
+    from sklearn.metrics import roc_curve, roc_auc_score
+
+    X_test_path = Path("models/saved/X_test.joblib")
+    y_test_path = Path("models/saved/y_test.joblib")
+
+    if not X_test_path.exists() or not y_test_path.exists():
+        raise HTTPException(status_code=404, detail="Brak X_test/y_test. Uruchom scripts/train_model.py")
+
+    try:
+        X_test = joblib.load(X_test_path)
+        y_test = joblib.load(y_test_path)
+
+        result = {}
+        for model_key, filename in _MODEL_FILES.items():
+            model_path = Path("models/saved") / filename
+            if not model_path.exists():
+                continue
+
+            try:
+                model = joblib.load(model_path)
+                if hasattr(model, 'predict_proba'):
+                    y_proba = model.predict_proba(X_test)[:, 1]
+                else:
+                    from scipy.special import expit
+                    y_proba = expit(model.decision_function(X_test))
+
+                fpr, tpr, _ = roc_curve(y_test, y_proba)
+                auc = roc_auc_score(y_test, y_proba)
+
+                result[model_key] = {
+                    "label": _MODEL_LABELS.get(model_key, model_key),
+                    "fpr": fpr.tolist(),
+                    "tpr": tpr.tolist(),
+                    "auc": round(float(auc), 4),
+                }
+            except Exception as e:
+                logger.warning(f"Nie udało się obliczyć ROC dla {model_key}: {e}")
+                continue
+
+        return {"roc_curves": result}
+
+    except Exception as e:
+        logger.error(f"Błąd ROC curves: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/model/charts/confusion-matrix", tags=["Model"])
+async def get_confusion_matrices():
+    """
+    Macierze konfuzji dla wszystkich modeli.
+
+    Zwraca confusion matrix (raw + normalized) per model.
+    """
+    from sklearn.metrics import confusion_matrix
+
+    X_test_path = Path("models/saved/X_test.joblib")
+    y_test_path = Path("models/saved/y_test.joblib")
+
+    if not X_test_path.exists() or not y_test_path.exists():
+        raise HTTPException(status_code=404, detail="Brak X_test/y_test. Uruchom scripts/train_model.py")
+
+    try:
+        X_test = joblib.load(X_test_path)
+        y_test = joblib.load(y_test_path)
+
+        result = {}
+        for model_key, filename in _MODEL_FILES.items():
+            model_path = Path("models/saved") / filename
+            if not model_path.exists():
+                continue
+
+            try:
+                model = joblib.load(model_path)
+                y_pred = model.predict(X_test)
+
+                cm = confusion_matrix(y_test, y_pred)
+                cm_normalized = (cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]).round(4)
+
+                result[model_key] = {
+                    "label": _MODEL_LABELS.get(model_key, model_key),
+                    "matrix": cm.tolist(),
+                    "normalized": cm_normalized.tolist(),
+                    "labels": ["Przeżycie", "Zgon"],
+                }
+            except Exception as e:
+                logger.warning(f"Nie udało się obliczyć confusion matrix dla {model_key}: {e}")
+                continue
+
+        return {"confusion_matrices": result}
+
+    except Exception as e:
+        logger.error(f"Błąd confusion matrices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/explain/counterfactuals", response_model=CounterfactualResponse, tags=["XAI"])
+async def explain_counterfactuals(request: ExplanationRequest):
+    """DiCE counterfactuals: minimalne zmiany cech modyfikowalnych do flipu klasy.
+
+    Domyślnie zmienia tylko cechy modyfikowalne klinicznie (laboratoria, sterydy,
+    plazmaferezy, leczenie immunosupresyjne) — wiek, płeć, typ ANCA, manifestacje
+    i historia choroby pozostają niezmienione.
+
+    OSTRZEŻENIE: counterfactuals są korelacyjne, nie przyczynowe (Prosperi 2020).
+    Nie używać jako rekomendacji terapeutycznej bez walidacji klinicznej.
+    """
+    try:
+        model = _load_model_by_key(request.model_key)
+        features = patient_to_array(request.patient, app_state.feature_names)
+        instance = np.array(features, dtype=float)
+
+        X_train = joblib.load(Path("models/saved/X_train.joblib"))
+        y_train = joblib.load(Path("models/saved/y_train.joblib"))
+
+        from src.xai.dice_explainer import generate_counterfactuals as dice_gen
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: dice_gen(
+                model=model,
+                X_train=np.asarray(X_train),
+                y_train=np.asarray(y_train),
+                feature_names=app_state.feature_names,
+                instance=instance,
+                desired_class=0,
+                total_CFs=request.num_features or 5,
+                methods=("random",),
+            ),
+        )
+
+        cfs_serialized = []
+        for cf in result["cfs"]:
+            cfs_serialized.append(CounterfactualExample(
+                predicted_proba=cf["predicted_proba"],
+                flipped_class=cf["flipped_class"],
+                n_changes=cf["n_changes"],
+                l1_distance=cf["l1_distance"],
+                nearest_neighbor_distance=cf["nearest_neighbor_distance"],
+                changes=[
+                    CounterfactualChange(
+                        feature=c["feature"],
+                        **{"from": c["from"]},
+                        to=c["to"],
+                        delta=c["delta"],
+                    )
+                    for c in cf["changes"]
+                ],
+            ))
+
+        return CounterfactualResponse(
+            success=bool(result["success"]),
+            method=result.get("method"),
+            original_probability=float(result["original_proba"]),
+            desired_class=0,
+            cfs=cfs_serialized,
+            metrics=CounterfactualMetrics(**result.get("metrics", {})) if result.get("metrics") else CounterfactualMetrics(),
+            features_varied=list(result.get("features_varied", [])),
+            message=str(result.get("message", "")),
+        )
+    except Exception as e:
+        logger.error(f"Błąd counterfactuals: {e}")
+        raise HTTPException(status_code=500, detail="Błąd generacji counterfactuals")
+
+
+@app.get("/model/calibration", response_model=CalibrationResponse, tags=["Model"])
+async def get_calibration():
+    """Kalibracja wszystkich modeli na zbiorze testowym.
+
+    Zwraca:
+    - Brier score (im niższy, tym lepiej; 0 = doskonała kalibracja),
+    - calibration slope i intercept (regresja logistyczna y ~ logit(p_pred);
+      idealnie slope=1, intercept=0; slope<1 = nadmierna pewność),
+    - punkty diagramu wiarygodności (mean_predicted vs fraction_positive).
+    """
+    try:
+        from src.models.calibration_metrics import compute_calibration
+
+        X_test = joblib.load(Path("models/saved/X_test.joblib"))
+        y_test = joblib.load(Path("models/saved/y_test.joblib"))
+        n_test = len(y_test)
+        n_pos = int(np.asarray(y_test).sum())
+        prevalence = n_pos / n_test if n_test else 0.0
+
+        models_out: List[ModelCalibration] = []
+        for model_key, filename in _MODEL_FILES.items():
+            model_path = Path("models/saved") / filename
+            if not model_path.exists():
+                continue
+            try:
+                model = joblib.load(model_path)
+                if not hasattr(model, "predict_proba"):
+                    continue
+                p = model.predict_proba(X_test)[:, 1]
+                cal = compute_calibration(y_test, p, n_bins=10, strategy="quantile")
+                models_out.append(ModelCalibration(
+                    model=_MODEL_LABELS.get(model_key, model_key),
+                    brier_score=float(cal["brier"]),
+                    calibration_slope=float(cal["slope"]),
+                    calibration_intercept=float(cal["intercept"]),
+                    n_test=n_test,
+                    curve=[CalibrationCurvePoint(**pt) for pt in cal["curve"]],
+                ))
+            except Exception as e:
+                logger.warning(f"Kalibracja {model_key} nie powiodła się: {e}")
+                continue
+
+        return CalibrationResponse(
+            n_test=n_test,
+            n_positive=n_pos,
+            prevalence=float(prevalence),
+            models=models_out,
+        )
+    except Exception as e:
+        logger.error(f"Błąd kalibracji: {e}")
+        raise HTTPException(status_code=500, detail="Błąd obliczenia kalibracji")
+
+
+@app.get("/model/decision-curve", response_model=DecisionCurveResponse, tags=["Model"])
+async def get_decision_curve():
+    """Decision Curve Analysis (DCA) — net benefit każdego modelu vs treat-all.
+
+    Vickers & Elkin (2006): NB(t) = TP/N - FP/N * t/(1-t).
+    Krzywa "treat all" jako odniesienie; "treat none" = 0 dla każdego progu.
+    """
+    try:
+        from src.models.calibration_metrics import (
+            compute_decision_curve, compute_treat_all_curve, default_threshold_grid,
+        )
+
+        X_test = joblib.load(Path("models/saved/X_test.joblib"))
+        y_test = joblib.load(Path("models/saved/y_test.joblib"))
+        n_test = len(y_test)
+        n_pos = int(np.asarray(y_test).sum())
+        prevalence = n_pos / n_test if n_test else 0.0
+
+        thresholds = default_threshold_grid()
+        treat_all = compute_treat_all_curve(y_test, thresholds)
+        treat_all_pts = [NetBenefitPoint(**pt) for pt in treat_all]
+
+        models_out: List[ModelDCA] = []
+        for model_key, filename in _MODEL_FILES.items():
+            model_path = Path("models/saved") / filename
+            if not model_path.exists():
+                continue
+            try:
+                model = joblib.load(model_path)
+                if not hasattr(model, "predict_proba"):
+                    continue
+                p = model.predict_proba(X_test)[:, 1]
+                pts = compute_decision_curve(y_test, p, thresholds)
+                models_out.append(ModelDCA(
+                    model=_MODEL_LABELS.get(model_key, model_key),
+                    points=[NetBenefitPoint(**pt) for pt in pts],
+                ))
+            except Exception as e:
+                logger.warning(f"DCA {model_key} nie powiodło się: {e}")
+                continue
+
+        return DecisionCurveResponse(
+            n_test=n_test,
+            n_positive=n_pos,
+            prevalence=float(prevalence),
+            threshold_grid=list(thresholds),
+            treat_all=treat_all_pts,
+            models=models_out,
+        )
+    except Exception as e:
+        logger.error(f"Błąd DCA: {e}")
+        raise HTTPException(status_code=500, detail="Błąd obliczenia DCA")
+
+
+@app.get("/model/feature-selection", tags=["Model"])
+async def get_feature_selection():
+    """
+    Wyniki feature selection.
+
+    Zwraca dane z feature_selection_results.json i rfecv_results.json.
+    """
+    result = {}
+
+    fs_path = Path("models/saved/feature_selection_results.json")
+    if fs_path.exists():
+        try:
+            with open(fs_path, 'r', encoding='utf-8') as f:
+                result["feature_selection"] = json.load(f)
+        except Exception as e:
+            logger.warning(f"Błąd wczytywania feature_selection_results: {e}")
+
+    rfecv_path = Path("models/saved/rfecv_results.json")
+    if rfecv_path.exists():
+        try:
+            with open(rfecv_path, 'r', encoding='utf-8') as f:
+                result["rfecv"] = json.load(f)
+        except Exception as e:
+            logger.warning(f"Błąd wczytywania rfecv_results: {e}")
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Brak plików feature selection")
+
+    return result
 
 
 # ============================================================================
@@ -1359,13 +2005,27 @@ _COLLECTION_STEPS = [
 
 # Domyślne wartości dla pól, które nie są zbierane przez agenta
 _DEFAULT_EXTRA_FIELDS = {
+    "wiek": 0,
+    "zap_gpa": 0,
+    "manifestacja_objaw_ogol": 0,
     "manifestacja_miesno_szkiel": 0,
     "manifestacja_skora": 0,
     "manifestacja_wzrok": 0,
+    "manifestacja_nos_ucho_gardlo": 0,
+    "manifestacja_oddechowy": 0,
     "manifestacja_pokarmowy": 0,
     "manifestacja_moczowo_plciowy": 0,
-    "eozynofilia_krwi_obwodowej_wartosc": 0,
+    "eozynofilia_krwi_obwodowych_wartosc": 0,
     "pulsy": 0,
+    "czas_sterydow": 0,
+    "przebieg_scalony": 0,
+    "powiklanie_skora": 0,
+    "powiklania_hematologiczne": 0,
+    "powiklania_infekcja": 0,
+    "powiklania_autoimmunologiczne": 0,
+    "powiklania_neurologiczne": 0,
+    "powiklania_nowotwor_zlosliwy": 0,
+    "powiklania_serc_pluca": 0,
 }
 
 

@@ -1,20 +1,5 @@
 {
-  "model_type": "lightgbm",
-  "tuner": "optuna_tpe_multivariate",
-  "best_params": {
-    "n_estimators": 400,
-    "num_leaves": 54,
-    "max_depth": 3,
-    "learning_rate": 0.014950816445843533,
-    "min_child_samples": 14,
-    "subsample": 0.790544421197768,
-    "colsample_bytree": 0.40646279954556636,
-    "reg_alpha": 0.08687200661323258,
-    "reg_lambda": 4.360324378447307e-06
-  },
-  "optuna_inner_cv_auc": 0.8351194696982107,
-  "nested_cv_auc_mean": 0.875382596037148,
-  "nested_cv_auc_std": 0.030278401369720962,
+  "model_type": "stacking",
   "feature_names": [
     "Plec",
     "Wiek",
@@ -89,5 +74,23 @@
     "Wiek_x_Opoznienie"
   ],
   "n_features": 71,
-  "imputer_used": "median"
+  "imputer_used": "median",
+  "cv_auc_mean": 0.8894985751561318,
+  "cv_auc_std": 0.04062062948662816,
+  "cv_auc_values": [
+    0.8646874107907508,
+    0.8222222222222223,
+    0.9271929824561403,
+    0.9269005847953217,
+    0.9064896755162242
+  ],
+  "base_estimators": [
+    "random_forest",
+    "catboost",
+    "lightgbm",
+    "xgboost",
+    "gradient_boosting",
+    "svm"
+  ],
+  "meta_estimator": "LogisticRegression(C=1.0, class_weight=balanced)"
 }

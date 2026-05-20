@@ -1,49 +1,62 @@
 {
-  "model_type": "xgboost",
-  "best_params": null,
-  "feature_names": [
-    "Wiek_rozpoznania",
-    "Opoznienie_Rozpoznia",
-    "Manifestacja_Miesno-Szkiel",
-    "Manifestacja_Skora",
-    "Manifestacja_Wzrok",
-    "Manifestacja_Sercowo-Naczyniowy",
-    "Manifestacja_Pokarmowy",
-    "Manifestacja_Nerki",
-    "Manifestacja_Moczowo-Plciowy",
-    "Manifestacja_Zajecie_CSN",
-    "Manifestacja_Neurologiczny",
-    "Liczba_Zajetych_Narzadow",
-    "Zaostrz_Wymagajace_Hospital",
-    "Zaostrz_Wymagajace_OIT",
-    "Kreatynina",
-    "Pulsy",
-    "Czas_Sterydow",
-    "Plazmaferezy",
-    "Eozynofilia_Krwi_Obwodowej_Wartosc",
-    "Biopsja_Wynik"
-  ],
-  "training_history": [
-    {
-      "timestamp": "2026-03-13T21:36:46.122318",
-      "action": "fit",
-      "training_time": 0.224711,
-      "n_samples": 719,
-      "n_features": 20
+  "best_model_type_by_nested_cv": "random_forest",
+  "best_nested_cv_auc_mean": 0.8908831444392694,
+  "best_nested_cv_auc_std": 0.030195809047086804,
+  "serialized_artifact_note": "best_single_model.joblib is the preferred single-model artifact for API use. best_model.joblib remains available for backward compatibility.",
+  "all_models_nested_cv": {
+    "logistic_regression": {
+      "mean": 0.8668665788555507,
+      "std": 0.03482175304533959
+    },
+    "random_forest": {
+      "mean": 0.8908831444392694,
+      "std": 0.030195809047086804
+    },
+    "lightgbm": {
+      "mean": 0.875382596037148,
+      "std": 0.030278401369720962
+    },
+    "xgboost": {
+      "mean": 0.8841925884747075,
+      "std": 0.02814960419354303
+    },
+    "gradient_boosting": {
+      "mean": 0.8761846654413178,
+      "std": 0.03183084788904586
+    },
+    "svm": {
+      "mean": 0.8799384988305763,
+      "std": 0.033507893980252966
+    },
+    "neural_network": {
+      "mean": 0.8193989779854528,
+      "std": 0.04846237960988532
+    },
+    "catboost": {
+      "mean": 0.8890879663713476,
+      "std": 0.02386279271461497
     }
-  ],
-  "base_params": {
-    "n_estimators": 100,
-    "learning_rate": 0.1,
-    "max_depth": 6,
-    "min_child_weight": 1,
-    "gamma": 0,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "scale_pos_weight": 5,
-    "random_state": 42,
-    "eval_metric": "auc",
-    "use_label_encoder": false
   },
-  "timestamp": "2026-03-13T21:36:46.127916"
+  "all_models_optuna_inner_cv": {
+    "logistic_regression": 0.8204036518311029,
+    "random_forest": 0.8226254306790941,
+    "lightgbm": 0.8351194696982107,
+    "xgboost": 0.8419523711238881,
+    "gradient_boosting": 0.8105777777777776,
+    "svm": 0.8105932085114746,
+    "neural_network": 0.7937782036791325,
+    "catboost": 0.8367995762827548
+  },
+  "stacking_5fold_cv_auc": 0.8894985751561318,
+  "imputer_chosen": "median",
+  "single_best_model_type": "catboost",
+  "single_best_artifact": "best_single_model.joblib",
+  "single_best_feature_names_path": "best_single_model_features.json",
+  "single_best_cv_auc_mean": 0.9030017229980164,
+  "single_best_cv_auc_std": 0.023341658609581664,
+  "single_best_target_reached": true,
+  "single_best_feature_scope": "all_clinical",
+  "single_best_metadata_path": "best_single_model.json",
+  "api_primary_model_artifact": "best_single_model.joblib",
+  "api_primary_feature_names_path": "best_single_model_features.json"
 }

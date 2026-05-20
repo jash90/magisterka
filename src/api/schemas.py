@@ -37,49 +37,75 @@ class XAIMethod(str, Enum):
 # ============================================================================
 
 class PatientInput(BaseModel):
-    """Dane wejściowe pacjenta — 20 cech zgodnych z modelem XGBoost."""
+    """Dane wejściowe pacjenta — 30 cech zgodnych z modelem (SelectKBest)."""
 
     # Dane demograficzne
+    wiek: Optional[float] = Field(None, ge=0, le=120, description="Wiek pacjenta")
+    plec: int = Field(0, ge=0, le=1, description="Płeć pacjenta (0/1)")
     wiek_rozpoznania: Optional[float] = Field(None, ge=0, le=120, description="Wiek w momencie rozpoznania")
     opoznienie_rozpoznia: Optional[float] = Field(None, ge=0, description="Opóźnienie rozpoznania (miesiące)")
 
+    # Typ zapalenia naczyń
+    zap_gpa: int = Field(0, ge=0, le=1, description="Zapalenie GPA (ziarniniakowatość z zapaleniem naczyń)")
+
     # Manifestacje narządowe
-    manifestacja_miesno_szkiel: int = Field(0, ge=0, le=1, description="Mięśniowo-szkieletowy")
-    manifestacja_skora: int = Field(0, ge=0, le=1, description="Skóra")
-    manifestacja_wzrok: int = Field(0, ge=0, le=1, description="Wzrok")
-    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=1, description="Sercowo-naczyniowy")
-    manifestacja_pokarmowy: int = Field(0, ge=0, le=1, description="Pokarmowy")
-    manifestacja_nerki: int = Field(0, ge=0, le=1, description="Nerki")
-    manifestacja_moczowo_plciowy: int = Field(0, ge=0, le=1, description="Moczowo-płciowy")
-    manifestacja_zajecie_csn: int = Field(0, ge=0, le=1, description="Zajęcie CSN")
-    manifestacja_neurologiczny: int = Field(0, ge=0, le=1, description="Neurologiczny")
+    manifestacja_objaw_ogol: int = Field(0, ge=0, le=3, description="Objawy ogólne")
+    manifestacja_miesno_szkiel: int = Field(0, ge=0, le=3, description="Mięśniowo-szkieletowy")
+    manifestacja_skora: int = Field(0, ge=0, le=3, description="Skóra")
+    manifestacja_wzrok: int = Field(0, ge=0, le=3, description="Wzrok")
+    manifestacja_nos_ucho_gardlo: int = Field(0, ge=0, le=3, description="Nos/Ucho/Gardło")
+    manifestacja_oddechowy: int = Field(0, ge=0, le=3, description="Oddechowy")
+    manifestacja_sercowo_naczyniowy: int = Field(0, ge=0, le=3, description="Sercowo-naczyniowy")
+    manifestacja_pokarmowy: int = Field(0, ge=0, le=3, description="Pokarmowy")
+    manifestacja_nerki: int = Field(0, ge=0, le=3, description="Nerki")
+    manifestacja_moczowo_plciowy: int = Field(0, ge=0, le=3, description="Moczowo-płciowy")
+    manifestacja_zajecie_csn: int = Field(0, ge=0, le=3, description="Zajęcie CSN")
+    manifestacja_neurologiczny: int = Field(0, ge=0, le=3, description="Neurologiczny")
     liczba_zajetych_narzadow: int = Field(0, ge=0, le=20, description="Liczba zajętych narządów")
 
     # Przebieg choroby
-    zaostrz_wymagajace_hospital: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające hospitalizacji")
-    zaostrz_wymagajace_oit: int = Field(0, ge=0, le=1, description="Zaostrzenia wymagające OIT")
+    zaostrz_wymagajace_hospital: int = Field(0, ge=0, le=3, description="Zaostrzenia wymagające hospitalizacji")
+    zaostrz_wymagajace_oit: int = Field(0, ge=0, le=3, description="Zaostrzenia wymagające OIT")
+    przebieg_scalony: Optional[float] = Field(None, ge=0, description="Przebieg scalony (skala)")
 
     # Parametry laboratoryjne
     kreatynina: Optional[float] = Field(None, ge=0, description="Kreatynina (μmol/L)")
+    max_crp: Optional[float] = Field(None, ge=0, description="Maksymalne CRP")
     eozynofilia_krwi_obwodowej_wartosc: Optional[float] = Field(None, ge=0, description="Eozynofilia krwi obwodowej (wartość)")
 
     # Leczenie
     pulsy: int = Field(0, ge=0, le=1, description="Pulsy sterydowe IV")
     czas_sterydow: Optional[float] = Field(None, ge=0, description="Czas sterydów (miesiące)")
+    dializa: int = Field(0, ge=0, le=1, description="Dializa")
     plazmaferezy: int = Field(0, ge=0, le=1, description="Plazmaferezy")
 
     # Diagnostyka
     biopsja_wynik: int = Field(0, ge=0, le=1, description="Wynik biopsji (0=brak/ujemny, 1=dodatni)")
 
+    # Powikłania
+    powiklanie_skora: int = Field(0, ge=0, le=1, description="Powikłania skórne")
+    powiklania_hematologiczne: int = Field(0, ge=0, le=1, description="Powikłania hematologiczne")
+    powiklania_infekcja: int = Field(0, ge=0, le=1, description="Powikłania infekcyjne")
+    powiklania_autoimmunologiczne: int = Field(0, ge=0, le=1, description="Powikłania autoimmunologiczne")
+    powiklania_neurologiczne: int = Field(0, ge=0, le=1, description="Powikłania neurologiczne")
+    powiklania_nowotwor_zlosliwy: int = Field(0, ge=0, le=1, description="Powikłania nowotworowe")
+    powiklania_serc_pluca: int = Field(0, ge=0, le=1, description="Powikłania serce/płuca")
+
     class Config:
         extra = "ignore"
         json_schema_extra = {
             "example": {
+                "wiek": 55,
+                "plec": 1,
                 "wiek_rozpoznania": 50,
                 "opoznienie_rozpoznia": 6,
+                "zap_gpa": 1,
+                "manifestacja_objaw_ogol": 0,
                 "manifestacja_miesno_szkiel": 0,
                 "manifestacja_skora": 0,
                 "manifestacja_wzrok": 0,
+                "manifestacja_nos_ucho_gardlo": 0,
+                "manifestacja_oddechowy": 0,
                 "manifestacja_sercowo_naczyniowy": 0,
                 "manifestacja_nerki": 1,
                 "manifestacja_pokarmowy": 0,
@@ -89,14 +115,26 @@ class PatientInput(BaseModel):
                 "liczba_zajetych_narzadow": 3,
                 "zaostrz_wymagajace_hospital": 1,
                 "zaostrz_wymagajace_oit": 0,
+                "przebieg_scalony": 2,
                 "kreatynina": 120,
+                "max_crp": 30,
                 "eozynofilia_krwi_obwodowej_wartosc": 0.5,
                 "pulsy": 0,
                 "czas_sterydow": 12,
+                "dializa": 0,
                 "plazmaferezy": 0,
-                "biopsja_wynik": 1
+                "biopsja_wynik": 1,
+                "powiklanie_skora": 0,
+                "powiklania_hematologiczne": 0,
+                "powiklania_infekcja": 0,
+                "powiklania_autoimmunologiczne": 0,
+                "powiklania_neurologiczne": 0,
+                "powiklania_nowotwor_zlosliwy": 0,
+                "powiklania_serc_pluca": 0
             }
         }
+
+
 
 
 class ExplanationRequest(BaseModel):
@@ -161,7 +199,7 @@ class PredictionOutput(BaseModel):
     confidence_interval: Optional[Dict[str, float]] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "probability": 0.35,
                 "risk_level": "moderate",
@@ -268,11 +306,120 @@ class ComparisonResult(BaseModel):
     spearman_correlations: Dict[str, float]
 
 
+class KrishnaComparisonResult(BaseModel):
+    """Pełny panel metryk porównania XAI: Krishna et al. 2024 + RBO + Weighted Kendall.
+
+    Każda macierz to słownik {method: {method: value}} reprezentujący tabelę N×N.
+    """
+    methods_compared: List[str]
+    ks: List[int]
+    rbo_p: float
+    panels: Dict[str, Dict[str, Dict[str, float]]] = Field(
+        default_factory=dict,
+        description="Macierze par metoda × metoda dla każdej metryki",
+    )
+    summary: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Średnia górnego trójkąta (bez diagonali) dla każdej metryki",
+    )
+    rankings: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Pełny ranking cech zwracany przez każdą metodę",
+    )
+
+
 class ErrorResponse(BaseModel):
     """Odpowiedź błędu."""
     error: str
     detail: Optional[str] = None
     code: int
+
+
+# ============================================================================
+# CALIBRATION & DECISION CURVE ANALYSIS
+# ============================================================================
+
+class CalibrationCurvePoint(BaseModel):
+    """Pojedynczy punkt diagramu wiarygodności."""
+    mean_predicted: float
+    fraction_positive: float
+
+
+class ModelCalibration(BaseModel):
+    """Pełna kalibracja jednego modelu na zbiorze testowym."""
+    model: str
+    brier_score: float
+    calibration_slope: float
+    calibration_intercept: float
+    n_test: int
+    curve: List[CalibrationCurvePoint] = Field(default_factory=list)
+
+
+class CalibrationResponse(BaseModel):
+    """Kalibracja wszystkich dostępnych modeli."""
+    n_test: int
+    n_positive: int
+    prevalence: float
+    models: List[ModelCalibration] = Field(default_factory=list)
+
+
+class CounterfactualChange(BaseModel):
+    feature: str
+    from_value: float = Field(..., alias="from")
+    to_value: float = Field(..., alias="to")
+    delta: float
+
+    class Config:
+        populate_by_name = True
+
+
+class CounterfactualExample(BaseModel):
+    predicted_proba: float
+    flipped_class: bool
+    n_changes: int
+    l1_distance: float
+    nearest_neighbor_distance: float
+    changes: List[CounterfactualChange] = Field(default_factory=list)
+
+
+class CounterfactualMetrics(BaseModel):
+    validity: float = 0.0
+    n_changes_avg: float = 0.0
+    l1_distance_avg: float = 0.0
+    knn_distance_avg: float = 0.0
+    n_cfs: int = 0
+
+
+class CounterfactualResponse(BaseModel):
+    """Wynik DiCE: kontrfaktyczne wyjaśnienia dla pacjenta."""
+    success: bool
+    method: Optional[str] = None
+    original_probability: float
+    desired_class: int
+    cfs: List[CounterfactualExample] = Field(default_factory=list)
+    metrics: CounterfactualMetrics = Field(default_factory=CounterfactualMetrics)
+    features_varied: List[str] = Field(default_factory=list)
+    message: str = ""
+
+
+class NetBenefitPoint(BaseModel):
+    threshold: float
+    net_benefit: float
+
+
+class ModelDCA(BaseModel):
+    model: str
+    points: List[NetBenefitPoint] = Field(default_factory=list)
+
+
+class DecisionCurveResponse(BaseModel):
+    """Decision Curve Analysis dla wszystkich modeli + linie odniesienia."""
+    n_test: int
+    n_positive: int
+    prevalence: float
+    threshold_grid: List[float] = Field(default_factory=list)
+    treat_all: List[NetBenefitPoint] = Field(default_factory=list)
+    models: List[ModelDCA] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -286,7 +433,7 @@ class BatchPatientInput(BaseModel):
     top_n_factors: int = Field(3, ge=1, le=10, description="Liczba top czynników ryzyka")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "patients": [
                     {"wiek": 55, "plec": 1, "liczba_zajetych_narzadow": 3, "manifestacja_nerki": 1},
@@ -350,7 +497,7 @@ class BatchPredictionOutput(BaseModel):
     errors: List[BatchProcessingError] = []
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "total_patients": 100,
                 "processed_count": 100,
@@ -439,13 +586,19 @@ def patient_to_array(patient: PatientInput, feature_order: List[str]) -> List[fl
     Returns:
         Lista wartości cech
     """
-    # Mapowanie nazw z Pydantic na nazwy w modelu (20 cech XGBoost)
+    # Mapowanie nazw z Pydantic na nazwy w modelu (30 cech SelectKBest)
     field_mapping = {
+        'wiek': 'Wiek',
+        'plec': 'Plec',
         'wiek_rozpoznania': 'Wiek_rozpoznania',
         'opoznienie_rozpoznia': 'Opoznienie_Rozpoznia',
+        'zap_gpa': 'Zap_GPA',
+        'manifestacja_objaw_ogol': 'Manifestacja_Objaw_Ogol',
         'manifestacja_miesno_szkiel': 'Manifestacja_Miesno-Szkiel',
         'manifestacja_skora': 'Manifestacja_Skora',
         'manifestacja_wzrok': 'Manifestacja_Wzrok',
+        'manifestacja_nos_ucho_gardlo': 'Manifestacja_Nos/Ucho/Gardlo',
+        'manifestacja_oddechowy': 'Manifestacja_Oddechowy',
         'manifestacja_sercowo_naczyniowy': 'Manifestacja_Sercowo-Naczyniowy',
         'manifestacja_pokarmowy': 'Manifestacja_Pokarmowy',
         'manifestacja_nerki': 'Manifestacja_Nerki',
@@ -455,12 +608,22 @@ def patient_to_array(patient: PatientInput, feature_order: List[str]) -> List[fl
         'liczba_zajetych_narzadow': 'Liczba_Zajetych_Narzadow',
         'zaostrz_wymagajace_hospital': 'Zaostrz_Wymagajace_Hospital',
         'zaostrz_wymagajace_oit': 'Zaostrz_Wymagajace_OIT',
+        'przebieg_scalony': 'Przebieg_scalony',
         'kreatynina': 'Kreatynina',
+        'max_crp': 'Max_CRP',
         'pulsy': 'Pulsy',
         'czas_sterydow': 'Czas_Sterydow',
+        'dializa': 'Dializa',
         'plazmaferezy': 'Plazmaferezy',
         'eozynofilia_krwi_obwodowej_wartosc': 'Eozynofilia_Krwi_Obwodowej_Wartosc',
         'biopsja_wynik': 'Biopsja_Wynik',
+        'powiklanie_skora': 'Powiklanie_Skora',
+        'powiklania_hematologiczne': 'Powiklania_Hematologiczne',
+        'powiklania_infekcja': 'Powiklania_Infekcja',
+        'powiklania_autoimmunologiczne': 'Powiklania_Autoimmunologiczne',
+        'powiklania_neurologiczne': 'Powiklania_Neurologiczne',
+        'powiklania_nowotwor_zlosliwy': 'Powiklania_Nowotwor_Zlosliwy',
+        'powiklania_serc_pluca': 'Powiklania_Serce/pluca',
     }
 
     # Odwróć mapowanie

@@ -1,20 +1,14 @@
 {
-  "model_type": "lightgbm",
+  "model_type": "logistic_regression",
   "tuner": "optuna_tpe_multivariate",
   "best_params": {
-    "n_estimators": 400,
-    "num_leaves": 54,
-    "max_depth": 3,
-    "learning_rate": 0.014950816445843533,
-    "min_child_samples": 14,
-    "subsample": 0.790544421197768,
-    "colsample_bytree": 0.40646279954556636,
-    "reg_alpha": 0.08687200661323258,
-    "reg_lambda": 4.360324378447307e-06
+    "C": 0.011308019905009539,
+    "solver": "liblinear",
+    "penalty": "l2"
   },
-  "optuna_inner_cv_auc": 0.8351194696982107,
-  "nested_cv_auc_mean": 0.875382596037148,
-  "nested_cv_auc_std": 0.030278401369720962,
+  "optuna_inner_cv_auc": 0.8204036518311029,
+  "nested_cv_auc_mean": 0.8668665788555507,
+  "nested_cv_auc_std": 0.03482175304533959,
   "feature_names": [
     "Plec",
     "Wiek",
