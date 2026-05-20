@@ -31,11 +31,6 @@ langchain-community>=0.0.10
 langchain-openai>=0.0.5
 chromadb>=0.4.0
 
-# === Dashboard ===
-streamlit>=1.28.0
-plotly>=5.18.0
-requests>=2.31.0
-
 # === Thesis scripts ===
 python-docx>=0.8.11
 
